@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import logging
 
 from fastapi import APIRouter, HTTPException
@@ -281,17 +282,23 @@ def execute(req: RouterExecuteRequest) -> RouterExecuteResponse:
         except KeyError:
             return base_context
 
-        history = [
-            {
-                "role": m.role,
-                "content": m.content,
-                "created_at": getattr(m, "created_at", None),
-                "routing_meta": (
-                    m.routing_meta.model_dump(mode="json") if m.routing_meta else None
-                ),
-            }
-            for m in msgs[-20:]
-        ]
+        history = []
+        for m in msgs[-20:]:
+            created_at = getattr(m, "created_at", None)
+            if isinstance(created_at, datetime):
+                created_at = created_at.isoformat()
+            history.append(
+                {
+                    "role": m.role,
+                    "content": m.content,
+                    "created_at": created_at,
+                    "routing_meta": (
+                        m.routing_meta.model_dump(mode="json")
+                        if m.routing_meta
+                        else None
+                    ),
+                }
+            )
 
         # Prefer the most recent persisted artifacts, including planner state updates stored as
         # `system` messages.
