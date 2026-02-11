@@ -598,7 +598,12 @@ const App: React.FC = () => {
                     <PlannerView
                       unifiedMessages={messages}
                       chatId={currentChatId}
-                      onSendMessage={(t) => void handleSubmit(undefined, t)}
+                      onInitialRoutedSendMessage={(t) => void handleSubmit(undefined, t)}
+                      onDirectSendMessage={async (t) => {
+                        if (!currentChatId) return;
+                        await invokeAgent('planner', t, currentChatId, true);
+                        await loadChatMessages(currentChatId);
+                      }}
                       isGenerating={isLoading}
                     />
                   );

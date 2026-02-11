@@ -15,7 +15,10 @@ type Props = {
   // The unified app's chat history; we use it to seed the planner prompt + UI messages.
   unifiedMessages: UnifiedMessage[];
   chatId?: string | null;
-  onSendMessage?: (text: string) => void;
+  // When there is no chat yet, fall back to the unified routing flow (creates chat_id).
+  onInitialRoutedSendMessage?: (text: string) => void;
+  // When chat exists, send directly to planner agent and refresh messages.
+  onDirectSendMessage?: (text: string) => Promise<void>;
   isGenerating?: boolean;
 };
 
@@ -62,7 +65,13 @@ const findLatestRisks = (msgs: UnifiedMessage[]): string[] | null => {
   return null;
 };
 
-export const PlannerView: React.FC<Props> = ({ unifiedMessages, chatId, onSendMessage, isGenerating = false }) => {
+export const PlannerView: React.FC<Props> = ({
+  unifiedMessages,
+  chatId,
+  onInitialRoutedSendMessage,
+  onDirectSendMessage,
+  isGenerating = false,
+}) => {
   const [plan, setPlan] = useState<PlannerProjectPlan | null>(null);
   const [risks, setRisks] = useState<string[] | null>(null);
   const [isDirty, setIsDirty] = useState(false);
@@ -109,15 +118,21 @@ export const PlannerView: React.FC<Props> = ({ unifiedMessages, chatId, onSendMe
       // Planner side-chat must NOT go through router (no re-routing).
       // If we have a chatId, invoke planner directly and persist into the same chat.
       if (chatId) {
+        if (onDirectSendMessage) {
+          await onDirectSendMessage(text);
+          return;
+        }
+
+        // Backward-compatible fallback (does not refresh parent state).
         await invokeAgent('planner', text, chatId, true);
         return;
       }
 
       // Fallback: if no chat exists yet, let the unified routing flow create one.
-      if (!onSendMessage) return;
-      onSendMessage(text);
+      if (!onInitialRoutedSendMessage) return;
+      onInitialRoutedSendMessage(text);
     },
-    [chatId, onSendMessage]
+    [chatId, onDirectSendMessage, onInitialRoutedSendMessage]
   );
 
   const handleToggleTask = useCallback((phaseId: string, taskId: string) => {
