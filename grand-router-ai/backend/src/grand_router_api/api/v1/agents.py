@@ -11,10 +11,16 @@ Phase 6+ planner sidebar requirement:
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from grand_router_contracts.agent import AgentId, AgentInvokeRequest, AgentInvokeResponse
+from grand_router_contracts.agent import (
+    AgentId,
+    AgentInvokeRequest,
+    AgentInvokeResponse,
+)
 from grand_router_contracts.chat import MessageRole, RoutingMeta, RoutingMetaMode
 
 from ...services.agents.runner import AgentInvokeError, invoke_agent
@@ -32,7 +38,9 @@ class AgentInvokeDirectRequest(AgentInvokeRequest):
     """
 
     chat_id: str | None = Field(default=None, description="Existing chat to append to.")
-    persist: bool = Field(default=False, description="If true, append user+assistant messages.")
+    persist: bool = Field(
+        default=False, description="If true, append user+assistant messages."
+    )
 
 
 def _augment_context_with_chat_memory(*, chat_id: str, base_context: dict) -> dict:
@@ -53,17 +61,21 @@ def _augment_context_with_chat_memory(*, chat_id: str, base_context: dict) -> di
     except KeyError:
         return base_context
 
-    history = [
-        {
-            "role": m.role,
-            "content": m.content,
-            "created_at": getattr(m, "created_at", None),
-            "routing_meta": (
-                m.routing_meta.model_dump(mode="json") if m.routing_meta else None
-            ),
-        }
-        for m in msgs[-20:]
-    ]
+    history = []
+    for m in msgs[-20:]:
+        created_at = getattr(m, "created_at", None)
+        if isinstance(created_at, datetime):
+            created_at = created_at.isoformat()
+        history.append(
+            {
+                "role": m.role,
+                "content": m.content,
+                "created_at": created_at,
+                "routing_meta": (
+                    m.routing_meta.model_dump(mode="json") if m.routing_meta else None
+                ),
+            }
+        )
 
     # Prefer the most recent persisted artifacts, including planner state updates stored as
     # `system` messages.
@@ -132,12 +144,16 @@ def _augment_context_with_chat_memory(*, chat_id: str, base_context: dict) -> di
 
 
 @router.post("/{agent_id}/invoke", response_model=AgentInvokeResponse)
-def invoke_agent_endpoint(agent_id: AgentId, request: AgentInvokeDirectRequest) -> AgentInvokeResponse:
+def invoke_agent_endpoint(
+    agent_id: AgentId, request: AgentInvokeDirectRequest
+) -> AgentInvokeResponse:
     try:
         # Enrich context from chat memory when continuing an existing chat.
         ctx = request.context or {}
         if request.chat_id:
-            ctx = _augment_context_with_chat_memory(chat_id=request.chat_id, base_context=ctx)
+            ctx = _augment_context_with_chat_memory(
+                chat_id=request.chat_id, base_context=ctx
+            )
 
         agent_response = invoke_agent(
             agent_id,
@@ -161,12 +177,18 @@ def invoke_agent_endpoint(agent_id: AgentId, request: AgentInvokeDirectRequest) 
                 routing_meta=None,
                 artifacts=[],
             )
-            assistant_content = "\n".join(agent_response.notes) if agent_response.notes else "(no notes)"
+            assistant_content = (
+                "\n".join(agent_response.notes)
+                if agent_response.notes
+                else "(no notes)"
+            )
             _store.create_message(
                 chat_id=request.chat_id,
                 role=MessageRole.assistant,
                 content=assistant_content,
-                routing_meta=RoutingMeta(agent_id=agent_id, confidence=1.0, mode=RoutingMetaMode.forced),
+                routing_meta=RoutingMeta(
+                    agent_id=agent_id, confidence=1.0, mode=RoutingMetaMode.forced
+                ),
                 artifacts=agent_response.artifacts,
             )
 
