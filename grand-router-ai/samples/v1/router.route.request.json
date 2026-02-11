@@ -1,0 +1,8 @@
+{
+  "api_version": "v1",
+  "chat_id": "chat_123",
+  "query": "Fix my Python unit test failure",
+  "context": {
+    "recent_messages": []
+  }
+}

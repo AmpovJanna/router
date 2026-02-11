@@ -1,0 +1,29 @@
+{
+  "api_version": "v1",
+  "cases": [
+    {
+      "query": "Fix this error stack trace",
+      "expected_agent_id": "codegen"
+    },
+    {
+      "query": "Please debug and fix my failing unit tests",
+      "expected_agent_id": "codegen"
+    },
+    {
+      "query": "Refactor this function for readability",
+      "expected_agent_id": "codegen"
+    },
+    {
+      "query": "Please create a detailed execution plan for this project. Include a timeline, milestones, and risks. Tech stack constraints: Python FastAPI backend, React frontend, OpenAI API.",
+      "expected_agent_id": "projplan"
+    },
+    {
+      "query": "Create a project plan and milestones",
+      "expected_agent_id": "projplan"
+    },
+    {
+      "query": "Write requirements and a timeline for this project",
+      "expected_agent_id": "projplan"
+    }
+  ]
+}

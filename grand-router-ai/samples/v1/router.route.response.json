@@ -1,0 +1,11 @@
+{
+  "api_version": "v1",
+  "route": {
+    "mode": "single",
+    "primary_agent_id": "codegen",
+    "candidates": [
+      {"agent_id": "codegen", "confidence": 0.9},
+      {"agent_id": "projplan", "confidence": 0.1}
+    ]
+  }
+}

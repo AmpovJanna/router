@@ -1,0 +1,150 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Unified AI Specialist</title>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary": "#FF8E72",
+              "secondary": "#FFCBA4",
+              "background-light": "#FDFBF7",
+              "background-dark": "#1C1917",
+              "text-main": "#4A403A",
+
+              // Project Planner theme tokens (from former project-planner-ai)
+              "coral-pastel": "#FFB3A1",
+              "beige-bg": "#FDFBF7",
+              "emerald-light": "#ECFDF5",
+            },
+            fontFamily: {
+              "display": ["Inter", "sans-serif"]
+            },
+            animation: {
+              'fade-in-up': 'fadeInUp 0.5s ease-out forwards',
+            },
+            keyframes: {
+              fadeInUp: {
+                '0%': { opacity: '0', transform: 'translateY(20px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+            },
+          },
+        },
+      }
+    </script>
+    <style>
+      /* Project Planner utilities (former project-planner-ai) */
+      .glass-chat {
+        background: rgba(253, 251, 247, 0.65);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+      }
+      .glass-workspace {
+        background: rgba(255, 255, 255, 0.6);
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+      }
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 4px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: rgba(16, 185, 129, 0.2);
+        border-radius: 10px;
+      }
+      .phase-connector {
+        position: relative;
+      }
+      .phase-connector::before {
+        content: '';
+        position: absolute;
+        left: 11px;
+        top: 32px;
+        bottom: -16px;
+        width: 2px;
+        background: repeating-linear-gradient(to bottom, transparent, transparent 4px, #e5e7eb 4px, #e5e7eb 8px);
+      }
+      .phase-connector:last-child::before {
+        display: none;
+      }
+
+      /* Chat markdown rendering (planner sidebar assistant bubbles) */
+      .chat-markdown {
+        white-space: normal;
+      }
+      .chat-markdown :where(p) {
+        margin: 0;
+      }
+      .chat-markdown :where(p + p) {
+        margin-top: 0.75rem;
+      }
+      .chat-markdown :where(h1, h2, h3) {
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        color: #2D2424;
+        margin-top: 0.75rem;
+        margin-bottom: 0.5rem;
+      }
+      .chat-markdown :where(h1) { font-size: 1.05rem; }
+      .chat-markdown :where(h2) { font-size: 1.0rem; }
+      .chat-markdown :where(h3) { font-size: 0.95rem; }
+      .chat-markdown :where(ul, ol) {
+        margin-top: 0.5rem;
+        margin-bottom: 0.5rem;
+        padding-left: 1.25rem;
+      }
+      .chat-markdown :where(li) {
+        margin-top: 0.25rem;
+      }
+      .chat-markdown :where(code) {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 0.92em;
+        background: rgba(0,0,0,0.06);
+        padding: 0.1rem 0.3rem;
+        border-radius: 0.35rem;
+      }
+      .chat-markdown :where(pre code) {
+        background: transparent;
+        padding: 0;
+      }
+      .chat-markdown :where(pre) {
+        margin-top: 0.75rem;
+        margin-bottom: 0.75rem;
+        padding: 0.75rem;
+        overflow-x: auto;
+        border-radius: 0.75rem;
+        background: rgba(0,0,0,0.04);
+        border: 1px solid rgba(0,0,0,0.06);
+      }
+
+      /* Existing unified-ai-specialist utility */
+      .glass-panel {
+        background: rgba(255, 255, 255, 0.65);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+      }
+      .dark .glass-panel {
+        background: rgba(28, 25, 23, 0.6);
+      }
+
+      body {
+        min-height: 100dvh;
+      }
+    </style>
+</head>
+  <body class="bg-background-light dark:bg-background-dark font-display text-text-main dark:text-white transition-colors duration-200 overflow-x-hidden">
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

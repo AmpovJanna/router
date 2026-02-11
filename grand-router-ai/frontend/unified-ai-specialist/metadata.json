@@ -1,0 +1,5 @@
+{
+  "name": "Unified AI Specialist",
+  "description": "A frontend for the Grand Router backend: routes queries to specialized backend agents and persists chats/messages on the server.",
+  "requestFramePermissions": []
+}

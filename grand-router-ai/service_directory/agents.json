@@ -1,0 +1,42 @@
+[
+  {
+    "agent_id": "codegen",
+    "name": "Code Generation & Debugging",
+    "description": "Code generation, debugging, refactoring, and patch writing agent.",
+    "keywords": [
+      "code",
+      "generate",
+      "refactor",
+      "patch",
+      "bug",
+      "error",
+      "stack trace",
+      "debug",
+      "fix",
+      "unit test"
+    ],
+    "entrypoint": "grand_router_api.services.agents.codegen.agent:CodegenAgent",
+    "version": "1.0.0",
+    "enabled": true
+  },
+  {
+    "agent_id": "planner",
+    "name": "Project Planner",
+    "description": "Structured project planning agent that returns a Planner-UI compatible ProjectPlan artifact.",
+    "keywords": [
+      "plan",
+      "planner",
+      "project",
+      "milestones",
+      "requirements",
+      "timeline",
+      "roadmap",
+      "dependencies",
+      "task board",
+      "progress"
+    ],
+    "entrypoint": "grand_router_api.services.agents.projplan.agent:ProjPlanAgent",
+    "version": "1.0.0",
+    "enabled": true
+  }
+]
