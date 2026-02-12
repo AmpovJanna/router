@@ -10,7 +10,7 @@ import type { PlannerProjectPlan } from './plannerTypes';
 export type ApiVersion = 'v1';
 
 // Keep in sync with backend registry: service_directory/agents.json
-export type AgentId = 'codegen' | 'planner';
+export type AgentId = 'codegen' | 'planner' | 'chatwriter' | 'codechat' | 'planchat' | 'projplan';
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 
@@ -74,6 +74,9 @@ export interface Chat {
   title: string;
   created_at: string; // datetime ISO string
   updated_at: string; // datetime ISO string
+  // Optional: some backends may persist the chat's last routed agent.
+  // If present, prefer this for UI icons.
+  routed_agent_id?: AgentId | null;
   pending_continuation?: {
     agent_id: AgentId;
     original_query: string;
@@ -132,6 +135,20 @@ export interface RouteResponse {
   routing_rationale: string | null;
 }
 
+export interface RouteRequest {
+  query: string;
+  chat_id?: string | null;
+  message_id?: string | null;
+  context?: Record<string, unknown>;
+  // Optional client override; kept for parity with backend contracts.
+  selected_agent_id?: AgentId | null;
+}
+
+export type ContextFile = {
+  path: string;
+  content: string;
+};
+
 export type AgentStatus = 'ok' | 'error' | 'needs_clarification';
 
 export interface AgentInvokeResponse {
@@ -149,3 +166,5 @@ export interface ExecuteResponse {
   agent_response: AgentInvokeResponse | null;
   chat_id?: string | null;
 }
+
+export {};

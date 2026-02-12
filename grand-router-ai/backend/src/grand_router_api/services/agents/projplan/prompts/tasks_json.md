@@ -59,3 +59,7 @@ PLANNING CONSTRAINTS:
 - Valid icons ONLY: search, palette, code, rocket.
 
 Now produce the JSON plan.
+
+Remember:
+- Output JSON only.
+- No chain-of-thought or meta commentary.

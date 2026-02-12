@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { PatchTabs } from './components/PatchTabs';
-import type { Chat, Message } from './types';
-import { deleteChat, executeQuery, getChat, invokeAgent, listChats } from './services/apiClient';
+import type { Chat, ContextFile, Message } from './types';
+import { deleteChat, executeQueryCancelable, getChat, invokeAgent, invokeAgentCancelable, listChats, routeQuery } from './services/apiClient';
 import HistoryView from './components/HistoryView';
 import PlannerView from './components/PlannerView';
 import CodegenView from './components/CodegenView';
@@ -109,9 +109,55 @@ const HistorySidebar: React.FC<HistorySidebarProps> = ({
                             className="size-10 shrink-0 rounded-2xl flex items-center justify-center bg-slate-50 text-slate-400 shadow-sm ring-1 ring-black/5 transition-transform group-hover:scale-105"
                             title="Open chat"
                           >
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                            </svg>
+                            {(() => {
+                              // Prefer persisted routing signal (more reliable than title heuristics).
+                              const routed = chat.routed_agent_id ? String(chat.routed_agent_id).toLowerCase() : '';
+                              const pending = chat.pending_continuation?.agent_id ? String(chat.pending_continuation.agent_id).toLowerCase() : '';
+                              const meta = routed || pending;
+                              const isPlannerByMeta = meta === 'planner' || meta === 'planchat' || meta === 'projplan';
+
+                              // Fallback: title heuristic for older chats.
+                              const t = (chat.title || '').toLowerCase();
+                              const isPlannerByTitle =
+                                t.includes('plan') || t.includes('roadmap') || t.includes('mvp') || t.includes('project') || t.includes('planner');
+
+                              const isPlanner = isPlannerByMeta || isPlannerByTitle;
+
+                              return isPlanner ? (
+                                // Planner: keep existing icon (clipboard/checklist in a chat bubble)
+                                <svg
+                                  width="20"
+                                  height="20"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M9 3h6a2 2 0 0 1 2 2v1h-2.5a2.5 2.5 0 0 1-5 0H7V5a2 2 0 0 1 2-2z" />
+                                  <path d="M7 6h10v12a2 2 0 0 1-2 2H9l-4 4V8a2 2 0 0 1 2-2z" />
+                                  <path d="M9 12h6" />
+                                  <path d="M9 15h4" />
+                                  <path d="M9 9h6" />
+                                </svg>
+                              ) : (
+                                // Code chats: render ONLY the code icon (no extra bubble/badge/overlay)
+                                <svg
+                                  width="20"
+                                  height="20"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M16 18l6-6-6-6" />
+                                  <path d="M8 6l-6 6 6 6" />
+                                </svg>
+                              );
+                            })()}
                           </button>
                           <div className="flex-1 min-w-0">
                             <h4 className="text-[#4A403A] dark:text-gray-200 font-semibold text-sm truncate">{chat.title}</h4>
@@ -177,6 +223,7 @@ const App: React.FC = () => {
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const activeRequestCancelRef = useRef<null | (() => void)>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -184,6 +231,66 @@ const App: React.FC = () => {
   // until we have a route decision for that interaction.
   const [pendingRoutedAgentId, setPendingRoutedAgentId] = useState<'codegen' | 'planner' | null>(null);
   const [isRouting, setIsRouting] = useState(false);
+  const [codegenContextFiles, setCodegenContextFiles] = useState<ContextFile[]>([]);
+  const codegenContextFilesRef = useRef<ContextFile[]>([]);
+  const [globalContextFiles, setGlobalContextFiles] = useState<ContextFile[]>([]);
+  const globalContextFilesRef = useRef<ContextFile[]>([]);
+
+  const mergeContextFiles = useCallback((a: ContextFile[], b: ContextFile[]): ContextFile[] => {
+    const seen = new Map<string, ContextFile>();
+    for (const f of a || []) {
+      if (f?.path) seen.set(f.path, f);
+    }
+    for (const f of b || []) {
+      if (f?.path) seen.set(f.path, f);
+    }
+    return Array.from(seen.values()).slice(0, 12);
+  }, []);
+
+  const setGlobalContextFilesSafe = useCallback((next: ContextFile[]) => {
+    const n = Array.isArray(next) ? next : [];
+    globalContextFilesRef.current = n;
+    setGlobalContextFiles(n);
+  }, []);
+
+  const setCodegenContextFilesSafe = useCallback((next: ContextFile[]) => {
+    const n = Array.isArray(next) ? next : [];
+    codegenContextFilesRef.current = n;
+    setCodegenContextFiles(n);
+  }, []);
+
+  const handlePickGlobalFiles = useCallback(
+    async (fileList: FileList | null) => {
+      if (!fileList || fileList.length === 0) return;
+      const files = Array.from(fileList);
+      const loaded = await Promise.all(
+        files.map(async (f) => {
+          const text = await f.text();
+          const p = (f as any).webkitRelativePath || f.name;
+          return { path: String(p || f.name), content: text } as ContextFile;
+        })
+      );
+      setGlobalContextFiles((prev) => {
+        const next = mergeContextFiles(prev, loaded);
+        globalContextFilesRef.current = next;
+        return next;
+      });
+    },
+    [mergeContextFiles]
+  );
+
+  // Map side-chat agents (codechat/planchat) to their owning workspace mode.
+  // This prevents the UI from flipping modes after a sidebar Q&A response.
+  const normalizeAgentIdToMode = useCallback(
+    (agentId: unknown): 'codegen' | 'planner' | null => {
+      const a = String(agentId || '').toLowerCase();
+      if (!a) return null;
+      if (a === 'planner' || a === 'planchat' || a === 'projplan') return 'planner';
+      if (a === 'codegen' || a === 'codechat') return 'codegen';
+      return null;
+    },
+    []
+  );
 
   const routingStatuses = useMemo(
     () => ['Detecting intent…', 'Checking context…', 'Selecting best agent…', 'Warming up tools…', 'Finalizing route…'],
@@ -204,9 +311,23 @@ const App: React.FC = () => {
   }, []);
 
   const lastAssistantRoutedAgentId = useMemo(() => {
+    // Prefer inferring mode from the latest "work product" artifact.
+    // This is more reliable than routing_meta because planner state updates are persisted
+    // as `system` messages (and some chats can contain mixed agent messages).
+    const artifactMode = (() => {
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const arts = messages[i]?.artifacts || [];
+        if (arts.some((a) => a.type === 'project_plan')) return 'planner' as const;
+        if (arts.some((a) => a.type === 'patch' || a.type === 'snippet')) return 'codegen' as const;
+      }
+      return null;
+    })();
+
+    if (artifactMode) return artifactMode;
+
     const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
-    return (lastAssistant?.routing_meta?.agent_id ?? null) as 'codegen' | 'planner' | null;
-  }, [messages]);
+    return normalizeAgentIdToMode(lastAssistant?.routing_meta?.agent_id ?? null);
+  }, [messages, normalizeAgentIdToMode]);
 
   // When routing is pending for a new submit, stay neutral until we learn the route.
   // Once resolved, prefer the most recent route decision for the in-flight request,
@@ -277,6 +398,7 @@ const App: React.FC = () => {
       setIsLoading(true);
       setIsRouting(true);
       setPendingRoutedAgentId(null);
+      activeRequestCancelRef.current = null;
 
       // Optimistic user message
       const optimisticUser: Message = {
@@ -291,22 +413,87 @@ const App: React.FC = () => {
       setMessages((prev) => [...prev, optimisticUser]);
 
       try {
-        const extracted = (await import('./services/codeExtract')).extractCodeAsFiles(userPrompt);
+        const extracted = (await import('./services/codeExtract.ts')).extractCodeAsFiles(userPrompt);
+
+        // Optional file context (global attach + codegen attach + inline fenced blocks).
+        const mergedFiles = mergeContextFiles(
+          mergeContextFiles(globalContextFilesRef.current, codegenContextFilesRef.current),
+          extracted.files
+        );
+
         if (extracted.files.length > 0) {
           console.log('[codeExtract] attached context.files', {
             count: extracted.files.length,
             source: extracted.source,
             language: extracted.inferred_language,
             goal: extracted.goal,
-            filenames: extracted.files.map((f) => f.filename),
+            filenames: extracted.files.map((f) => f.path),
           });
         }
 
-        const exec = await executeQuery(userPrompt, currentChatId ?? undefined);
-        const routed = exec.route_response?.routes?.[0]?.agent_id;
-        if (routed === 'planner' || routed === 'codegen') {
-          setPendingRoutedAgentId(routed);
+        const q = (userPrompt || '').trim().toLowerCase();
+        const looksLikeQuestion =
+          q.includes('?') ||
+          q.startsWith('what ') ||
+          q.startsWith('why ') ||
+          q.startsWith('how ') ||
+          q.startsWith('when ') ||
+          q.startsWith('where ') ||
+          q.startsWith('can you ') ||
+          q.includes('explain') ||
+          q.includes('meaning') ||
+          q.includes('difference');
+
+        const looksLikeChangeRequest =
+          q.includes('patch') ||
+          q.includes('fix') ||
+          q.includes('implement') ||
+          q.includes('refactor') ||
+          q.includes('add ') ||
+          q.includes('remove ') ||
+          q.includes('update ') ||
+          q.includes('modify ');
+
+        const forceCodeChat = looksLikeQuestion && !looksLikeChangeRequest;
+
+        // UI-first routing: as soon as the backend selects an agent, switch the UI mode
+        // immediately (without waiting for the full /execute to finish). This is purely
+        // a UX optimization; the actual work is still done by /execute.
+        try {
+          const contextForRouting =
+            mergedFiles.length > 0
+              ? {
+                  files: mergedFiles.map((f) => ({ path: f.path, content: f.content })),
+                  ...(extracted.inferred_language ? { language: extracted.inferred_language } : {}),
+                  ...(extracted.goal ? { goal: extracted.goal } : {}),
+                }
+              : {};
+
+          const routeResp = await routeQuery({
+            query: userPrompt,
+            ...(currentChatId ? { chat_id: currentChatId } : {}),
+            ...(Object.keys(contextForRouting).length > 0 ? { context: contextForRouting } : {}),
+            ...(forceCodeChat ? { selected_agent_id: 'codechat' as any } : {}),
+          });
+
+          const routed = routeResp?.routes?.[0]?.agent_id;
+          const routedMode = normalizeAgentIdToMode(routed);
+          if (routedMode) setPendingRoutedAgentId(routedMode);
+        } catch (e) {
+          // Best-effort: if /route fails, fall back to the /execute result.
+          console.warn('routeQuery failed (continuing with execute):', e);
         }
+
+        const { promise, cancel } = executeQueryCancelable(userPrompt, {
+          chatId: currentChatId ?? undefined,
+          ...(forceCodeChat ? { mode: 'forced', forcedAgentId: 'codechat' } : {}),
+          ...(mergedFiles.length > 0 ? { context: { files: mergedFiles } } : {}),
+        });
+        activeRequestCancelRef.current = cancel;
+        const exec = await promise;
+        const routed = exec.route_response?.routes?.[0]?.agent_id;
+        const routedMode = normalizeAgentIdToMode(routed);
+        if (routedMode) setPendingRoutedAgentId(routedMode);
 
         // Always prefer server-returned chat_id going forward.
         // This is required for clarification continuations and any multi-turn persistence.
@@ -325,6 +512,10 @@ const App: React.FC = () => {
           setPendingRoutedAgentId(null);
         }
       } catch (error) {
+        if ((error as any)?.name === 'AbortError') {
+          // User cancelled.
+          return;
+        }
         console.error('Execute failed:', error);
         const errMsg: Message = {
           message_id: `local-err-${Date.now()}`,
@@ -337,16 +528,102 @@ const App: React.FC = () => {
         };
         setMessages((prev) => [...prev, errMsg]);
       } finally {
+        activeRequestCancelRef.current = null;
         setIsLoading(false);
         setIsRouting(false);
       }
     },
-    [input, isLoading, currentChatId, refreshChats, loadChatMessages]
+    [
+      input,
+      isLoading,
+      currentChatId,
+      refreshChats,
+      loadChatMessages,
+      mergeContextFiles,
+      normalizeAgentIdToMode,
+    ]
+  );
+
+  const handleCancelActiveRequest = useCallback(() => {
+    try {
+      activeRequestCancelRef.current?.();
+    } finally {
+      activeRequestCancelRef.current = null;
+      setIsRouting(false);
+      setIsLoading(false);
+    }
+  }, []);
+
+  const handleDirectInvoke = useCallback(
+    async (opts: { agentId: 'planner' | 'codegen' | 'codechat' | 'planchat'; text: string; context?: Record<string, unknown> }) => {
+      if (!currentChatId) return;
+      const userPrompt = (opts.text || '').trimEnd();
+      if (!userPrompt.trim() || isLoading) return;
+
+      setIsLoading(true);
+
+      const optimisticUser: Message = {
+        message_id: `local-side-${Date.now()}`,
+        chat_id: currentChatId,
+        role: 'user',
+        content: userPrompt,
+        created_at: new Date().toISOString(),
+        routing_meta: null,
+        artifacts: [],
+      };
+
+      const placeholderAssistantId = `local-side-assistant-${Date.now()}`;
+      const optimisticAssistant: Message = {
+        message_id: placeholderAssistantId,
+        chat_id: currentChatId,
+        role: 'assistant',
+        content: 'Thinking...',
+        created_at: new Date().toISOString(),
+        routing_meta: null,
+        artifacts: [],
+      };
+
+      setMessages((prev) => [...prev, optimisticUser, optimisticAssistant]);
+
+      const { promise, cancel } = invokeAgentCancelable(opts.agentId, userPrompt, currentChatId, true, opts.context ?? {});
+      activeRequestCancelRef.current = cancel;
+
+      try {
+        await promise;
+        await loadChatMessages(currentChatId);
+      } catch (e) {
+        if ((e as any)?.name === 'AbortError') {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.message_id === placeholderAssistantId
+                ? { ...m, content: 'Request cancelled.' }
+                : m
+            )
+          );
+        } else {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.message_id === placeholderAssistantId
+                ? { ...m, content: 'Oops! Something went wrong while calling the backend agent.' }
+                : m
+            )
+          );
+        }
+      } finally {
+        activeRequestCancelRef.current = null;
+        setIsLoading(false);
+      }
+    },
+    [currentChatId, isLoading, loadChatMessages]
   );
 
   const isChatActive = messages.length > 0;
   const shouldShowNeutralRoutingScreen = isChatActive && isRouting && !pendingRoutedAgentId;
   const shouldShowClarificationScreen = Boolean(pendingContinuation);
+
+  const clarificationTargetMode = useMemo(() => {
+    return normalizeAgentIdToMode(pendingContinuation?.agent_id ?? null);
+  }, [pendingContinuation, normalizeAgentIdToMode]);
 
   useEffect(() => {
     if (!shouldShowNeutralRoutingScreen) {
@@ -364,7 +641,10 @@ const App: React.FC = () => {
   // Global routing input should appear ONLY on the landing / new-chat screen.
   // Once a chat is active and routed (planner OR codegen), the active mode view
   // must own its input (planner sidebar / codegen sidebar).
-  const shouldShowGlobalRoutingInput = !isChatActive;
+  // Global routing input should appear on the landing / new-chat screen.
+  // During clarification, prefer answering in the chosen agent UI when available;
+  // otherwise fall back to the global input.
+  const shouldShowGlobalRoutingInput = !isChatActive || (shouldShowClarificationScreen && !clarificationTargetMode);
 
   const getClarificationQuestions = useCallback((): string[] => {
     if (!shouldShowClarificationScreen) return [];
@@ -434,14 +714,17 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-2 mr-2">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Mode</span>
-            <span className="text-[10px] font-black uppercase tracking-widest text-[#2D2424] dark:text-gray-200">
-              {(() => {
-                return effectiveRoutedAgentId === 'planner' ? 'Project Planner' : 'CodeGen';
-              })()}
-            </span>
-          </div>
+          {/* Hide mode indicator on base/landing screen (no active chat). */}
+          {isChatActive && (
+            <div className="hidden sm:flex items-center gap-2 mr-2">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Mode</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-[#2D2424] dark:text-gray-200">
+                {(() => {
+                  return effectiveRoutedAgentId === 'planner' ? 'Project Planner' : 'CodeGen';
+                })()}
+              </span>
+            </div>
+          )}
           <button className="size-9 rounded-full overflow-hidden border border-gray-100 ring-2 ring-white/50">
             <img src="https://picsum.photos/seed/profile/100/100" className="w-full h-full object-cover" />
           </button>
@@ -490,67 +773,76 @@ const App: React.FC = () => {
           // Otherwise, render the standard codegen workspace (chat + patch/snippet view).
           <div className="h-[calc(100vh-9.5rem)] min-h-0">
             {(() => {
-              if (shouldShowClarificationScreen) {
+              // If we already submitted a clarification answer, the backend will clear
+              // pending_continuation after it finishes. During that in-flight window,
+              // show the routing/progress UI instead of keeping the user stuck on the
+              // clarification panel.
+              if (shouldShowClarificationScreen && !isRouting && !clarificationTargetMode) {
+                // If the router did not provide a specific target agent, keep the dedicated
+                // clarification panel as a safe fallback.
+
                 const qs = getClarificationQuestions();
-                const suggestions: Array<{ label: string; value: string }> = [
-                  { label: 'Project plan', value: 'I want a project plan (scope, milestones, risks, tasks).' },
-                  { label: 'Code changes', value: 'I want code changes / implementation details / a patch.' },
-                  { label: 'Both', value: 'I want both: a project plan and code changes.' },
-                ];
+                const suggestions: Array<{ label: string; value: string }> = [];
 
                 return (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full min-h-0">
-                    <div className="min-h-0 overflow-y-auto pr-1 rounded-2xl border border-gray-100 bg-white shadow-sm">
-                      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-100 bg-white/90 px-4 py-3 backdrop-blur">
-                        <div className="text-xs font-bold uppercase tracking-widest text-gray-500">Conversation</div>
-                        <div className="text-[11px] text-gray-400">Context preserved</div>
+                    <div className="min-h-0 overflow-y-auto pr-1 rounded-2xl border border-black/5 bg-white/70 dark:bg-[#26201C]/60 shadow-[0_18px_45px_-30px_rgba(0,0,0,0.35)] ring-1 ring-white/60 dark:ring-white/10 backdrop-blur-md">
+                      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-black/5 bg-white/70 dark:bg-[#26201C]/60 px-4 py-3 backdrop-blur-md">
+                        <div className="text-[11px] font-semibold tracking-wide text-gray-500 dark:text-gray-300">Conversation</div>
+                        <div className="text-[11px] text-gray-400 dark:text-gray-400">Context preserved</div>
                       </div>
                       <div className="p-4">
                         <HistoryView messages={messages} />
                       </div>
                     </div>
 
-                    <div className="min-h-0 overflow-y-auto rounded-2xl border border-gray-100 bg-white shadow-sm">
-                      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-100 bg-white/90 px-4 py-3 backdrop-blur">
-                        <div className="text-xs font-bold uppercase tracking-widest text-gray-500">Clarification</div>
-                        <div className="text-[11px] text-gray-400">Answer to continue</div>
+                    <div className="min-h-0 overflow-y-auto rounded-2xl border border-black/5 bg-white/70 dark:bg-[#26201C]/60 shadow-[0_18px_45px_-30px_rgba(0,0,0,0.35)] ring-1 ring-white/60 dark:ring-white/10 backdrop-blur-md">
+                      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-black/5 bg-white/70 dark:bg-[#26201C]/60 px-4 py-3 backdrop-blur-md">
+                        <div className="text-[11px] font-semibold tracking-wide text-gray-500 dark:text-gray-300">Clarification</div>
+                        <div className="text-[11px] text-gray-400 dark:text-gray-400">Answer to continue</div>
                       </div>
                       <div className="p-6 space-y-6">
                         <div>
-                          <div className="text-[#2D2424] dark:text-white text-xl font-extrabold tracking-tight">A few quick questions</div>
-                          <p className="text-sm text-gray-500 mt-1">
-                            I can keep your context and produce a better result if you answer these. Reply in your own words or tap a quick option.
+                          <div className="text-[#2D2424] dark:text-white text-xl font-semibold tracking-tight">A few quick questions</div>
+                          <p className="text-sm text-gray-500 dark:text-gray-300 mt-1">
+                            Answer what you can. Short responses are fine.
                           </p>
                         </div>
 
-                        <div className="rounded-2xl border border-gray-100 bg-[#FBFBF9] p-5">
+                        <div className="rounded-2xl border border-black/5 bg-white/50 dark:bg-white/5 p-5">
                           {qs.length > 0 ? (
-                            <ol className="space-y-3 text-sm text-[#2D2424]">
+                            <ol className="space-y-3 text-sm text-[#2D2424] dark:text-gray-100">
                               {qs.map((q, idx) => (
                                 <li key={idx} className="leading-relaxed">
-                                  <span className="font-bold text-gray-400 mr-2">{idx + 1}.</span>
+                                  <span className="font-semibold text-gray-400 mr-2">{idx + 1}.</span>
                                   {q}
                                 </li>
                               ))}
                             </ol>
                           ) : (
-                            <div className="text-sm text-gray-500">No structured questions found. Reply with any missing details and I’ll continue.</div>
+                            <div className="text-sm text-gray-500 dark:text-gray-300">No structured questions found. Reply with any missing details and I’ll continue.</div>
                           )}
                         </div>
 
-                        <div className="flex flex-wrap gap-2">
-                          {suggestions.map((s) => (
-                            <button
-                              key={s.label}
-                              type="button"
-                              onClick={() => void handleSubmit(undefined, s.value)}
-                              disabled={isLoading}
-                              className="px-4 py-2 rounded-full border border-gray-200 bg-white hover:bg-gray-50 text-[#2D2424] text-xs font-bold uppercase tracking-widest shadow-sm active:scale-[0.98] disabled:opacity-50"
-                            >
-                              {s.label}
-                            </button>
-                          ))}
-                        </div>
+                        {suggestions.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {suggestions.map((s) => (
+                              <button
+                                key={s.label}
+                                type="button"
+                                onClick={() => void handleSubmit(undefined, s.value)}
+                                disabled={isLoading}
+                                className="px-4 py-2 rounded-full border border-gray-200 bg-white hover:bg-gray-50 text-[#2D2424] text-xs font-bold uppercase tracking-widest shadow-sm active:scale-[0.98] disabled:opacity-50"
+                              >
+                                {s.label}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-gray-500">
+                            Reply in your own words to continue.
+                          </div>
+                        )}
 
                         <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5">
                           <div className="text-[11px] font-black uppercase tracking-widest text-primary">Tip</div>
@@ -565,65 +857,162 @@ const App: React.FC = () => {
               }
 
               if (shouldShowNeutralRoutingScreen) {
+                const stepLabel = routingStatuses[routingStatusIndex] || 'Working…';
+                const progress = Math.min(92, 22 + routingStatusIndex * 18);
                 return (
-                  <div className="max-w-3xl mx-auto h-full flex flex-col items-center justify-center text-center space-y-5">
-                    <div className="inline-flex items-center gap-2.5 rounded-full border border-black/5 bg-white/60 px-4 py-2 text-[11px] font-black uppercase tracking-widest text-gray-400 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
-                      <span className="inline-flex items-center gap-1" aria-hidden="true">
-                        <span className="size-1.5 rounded-full bg-primary/70 animate-bounce [animation-delay:-0.2s]" />
-                        <span className="size-1.5 rounded-full bg-primary/70 animate-bounce [animation-delay:-0.1s]" />
-                        <span className="size-1.5 rounded-full bg-primary/70 animate-bounce" />
-                      </span>
-                      <span>Analyzing</span>
-                      <span className="text-gray-300" aria-hidden="true">
-                        ·
-                      </span>
-                      <span className="normal-case font-semibold tracking-normal text-gray-500" aria-live="polite">
-                        {routingStatuses[routingStatusIndex]}
-                      </span>
+                  <div className="h-full min-h-0 rounded-2xl border border-black/5 bg-white/70 dark:bg-[#26201C]/60 shadow-[0_18px_45px_-30px_rgba(0,0,0,0.35)] ring-1 ring-white/60 dark:ring-white/10 overflow-hidden backdrop-blur-md">
+                    <div className="sticky top-0 z-10 border-b border-black/5 bg-white/70 dark:bg-[#26201C]/60 px-4 py-3 backdrop-blur-md">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white/60 dark:bg-white/5 px-3 py-1 text-[11px] font-semibold tracking-wide text-gray-500 dark:text-gray-300">
+                          <span className="relative inline-flex size-2">
+                            <span className="absolute inline-flex h-full w-full rounded-full bg-primary/40 opacity-70 animate-ping" />
+                            <span className="relative inline-flex size-2 rounded-full bg-primary/70" />
+                          </span>
+                          Routing
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-300 font-medium" aria-live="polite">
+                          {stepLabel}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 h-1 rounded-full bg-black/5 dark:bg-white/10 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-primary/55 via-primary/75 to-primary/55 transition-[width] duration-500 ease-out"
+                          style={{ width: `${progress}%` }}
+                          aria-hidden="true"
+                        />
+                      </div>
                     </div>
 
-                    <div className="text-[#2D2424] dark:text-white text-2xl sm:text-3xl font-extrabold tracking-tight">
-                      Figuring out the best next step
-                    </div>
-
-                    <div className="text-gray-500 font-medium max-w-xl">
-                      I’m checking your request for intent (planning vs code), scanning any attached context, and selecting the right agent.
+                    <div className="h-full min-h-0 overflow-y-auto p-4">
+                      <HistoryView messages={messages} />
                     </div>
                   </div>
                 );
               }
 
-                if (effectiveRoutedAgentId === 'planner') {
+                const resolvedMode = clarificationTargetMode ?? effectiveRoutedAgentId;
+
+                if (resolvedMode === 'planner' || resolvedMode === 'fullstack') {
                   return (
                     <PlannerView
                       unifiedMessages={messages}
                       chatId={currentChatId}
                       onInitialRoutedSendMessage={(t) => void handleSubmit(undefined, t)}
                       onDirectSendMessage={async (t) => {
-                        if (!currentChatId) return;
-                        await invokeAgent('planner', t, currentChatId, true);
-                        await loadChatMessages(currentChatId);
+                        const q = (t || '').trim().toLowerCase();
+                        const looksLikeQuestion =
+                          q.includes('?') ||
+                          q.startsWith('what ') ||
+                          q.startsWith('why ') ||
+                          q.startsWith('how ') ||
+                          q.startsWith('when ') ||
+                          q.startsWith('where ') ||
+                          q.startsWith('can you ') ||
+                          q.includes('explain') ||
+                          q.includes('meaning') ||
+                          q.includes('difference');
+
+                        const looksLikeChangeRequest =
+                          q.includes('update ') ||
+                          q.includes('change ') ||
+                          q.includes('modify ') ||
+                          q.includes('add ') ||
+                          q.includes('remove ') ||
+                          q.includes('refine ') ||
+                          q.includes('adjust ');
+
+                        const agent: 'planner' | 'planchat' = looksLikeQuestion && !looksLikeChangeRequest ? 'planchat' : 'planner';
+
+                        const latestPlan = (() => {
+                          for (let i = messages.length - 1; i >= 0; i -= 1) {
+                            const m = messages[i];
+                            const a = (m.artifacts || []).find((x) => x.type === 'project_plan') as any;
+                            if (a?.plan) return a.plan;
+                          }
+                          return null;
+                        })();
+
+                        const latestRisks = (() => {
+                          for (let i = messages.length - 1; i >= 0; i -= 1) {
+                            const m = messages[i];
+                            const a = (m.artifacts || []).find((x) => x.type === 'risks') as any;
+                            if (a?.risks && Array.isArray(a.risks)) return a.risks;
+                          }
+                          return null;
+                        })();
+
+                        const ctx = agent === 'planchat' && latestPlan ? { last_project_plan: latestPlan, last_risks: latestRisks } : {};
+                        await handleDirectInvoke({ agentId: agent as any, text: t, context: ctx });
                       }}
                       isGenerating={isLoading}
+                      onCancelGenerating={handleCancelActiveRequest}
                     />
                   );
                 }
 
-              return (
-                <div className="h-full min-h-0">
-                  <CodegenView
-                    messages={messages}
-                    chatId={currentChatId}
-                    isGenerating={isLoading}
-                    onInitialRoutedSendMessage={(t) => void handleSubmit(undefined, t)}
-                    onDirectSendMessage={async (t) => {
-                      if (!currentChatId) return;
-                      await invokeAgent('codegen', t, currentChatId, true);
-                      await loadChatMessages(currentChatId);
-                    }}
-                  />
-                </div>
-              );
+                return (
+                  <div className="h-full min-h-0">
+                    <CodegenView
+                      messages={messages}
+                      chatId={currentChatId}
+                      isGenerating={isLoading}
+                      onInitialRoutedSendMessage={(t) => void handleSubmit(undefined, t)}
+                      onCancelGenerating={handleCancelActiveRequest}
+                      onFilesChange={(files) => {
+                        setCodegenContextFilesSafe(files);
+                      }}
+                      onDirectSendMessage={async (t) => {
+                      const q = (t || '').trim().toLowerCase();
+                      const looksLikeQuestion =
+                        q.includes('?') ||
+                        q.startsWith('what ') ||
+                        q.startsWith('why ') ||
+                        q.startsWith('how ') ||
+                        q.startsWith('when ') ||
+                        q.startsWith('where ') ||
+                        q.startsWith('can you ') ||
+                        q.includes('explain') ||
+                        q.includes('meaning') ||
+                        q.includes('difference');
+
+                      const looksLikeChangeRequest =
+                        q.includes('patch') ||
+                        q.includes('fix') ||
+                        q.includes('implement') ||
+                        q.includes('refactor') ||
+                        q.includes('add ') ||
+                        q.includes('remove ') ||
+                        q.includes('update ') ||
+                        q.includes('modify ');
+
+                      const agent: 'codechat' | 'codegen' = looksLikeQuestion && !looksLikeChangeRequest ? 'codechat' : 'codegen';
+
+                      const attachedFiles = mergeContextFiles(globalContextFilesRef.current, codegenContextFilesRef.current);
+
+                      // Inject the latest patch/snippet artifact so Q&A can be precise even
+                      // when the backend chat memory doesn't include snippet artifacts.
+                      const latestPatchOrSnippet = (() => {
+                        const assistantMsgs = [...messages].filter((m) => m.role === 'assistant');
+                        for (let i = assistantMsgs.length - 1; i >= 0; i -= 1) {
+                          const a = assistantMsgs[i];
+                          const patch = (a.artifacts || []).find((x) => x.type === 'patch') as any;
+                          if (patch && (patch.patch || '').trim()) return String(patch.patch).trim();
+                          const snippet = (a.artifacts || []).find((x) => x.type === 'snippet') as any;
+                          if (snippet && (snippet.snippet || '').trim()) return String(snippet.snippet).trim();
+                        }
+                        return '';
+                      })();
+
+                      const ctx = {
+                        ...(agent === 'codechat' && latestPatchOrSnippet ? { last_patch: latestPatchOrSnippet } : {}),
+                        ...(attachedFiles.length > 0 ? { files: attachedFiles } : {}),
+                      };
+                      await handleDirectInvoke({ agentId: agent, text: t, context: ctx });
+                      }}
+                    />
+                  </div>
+                );
             })()}
           </div>
         )}
@@ -634,11 +1023,58 @@ const App: React.FC = () => {
               <form onSubmit={(e) => void handleSubmit(e)} className="relative">
                 <div className="absolute inset-0 -top-3 -bottom-3 bg-gradient-to-t from-[#FDFBF7] via-[#FDFBF7]/90 to-transparent dark:from-[#1C1917] dark:via-[#1C1917]/90 pointer-events-none" />
 
-                <div className="group relative rounded-3xl border border-black/5 bg-white/75 dark:bg-[#26201C]/70 backdrop-blur-md shadow-[0_16px_38px_-18px_rgba(0,0,0,0.35)] ring-1 ring-white/60 dark:ring-white/10 transition-shadow">
+                <div className="group relative rounded-3xl border border-black/5 bg-white/75 dark:bg-[#26201C]/70 backdrop-blur-md shadow-[0_16px_38px_-18px_rgba(0,0,0,0.35)] ring-1 ring-white/60 dark:ring-white/10 transition-shadow flex flex-col">
+                  {/* Optional file attach (applies to the next message) */}
+                  <div className="flex items-center gap-2 px-5 pt-4 pb-2 border-b border-black/5">
+                    <label className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white/80 px-3 py-2 text-[11px] font-bold text-gray-700 hover:bg-white cursor-pointer shadow-sm">
+                      <span className="material-symbols-outlined !text-[18px] text-gray-500">attach_file</span>
+                      Attach
+                      <input
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                          void handlePickGlobalFiles(e.target.files);
+                          // Allow picking the same file again.
+                          e.currentTarget.value = '';
+                        }}
+                        accept=".ts,.tsx,.js,.jsx,.py,.json,.md,.txt,.toml,.yml,.yaml,.html,.css"
+                        disabled={isLoading}
+                      />
+                    </label>
+
+                    {globalContextFiles.length > 0 && (
+                      <>
+                        <div className="h-4 w-px bg-black/10 mx-1" />
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {globalContextFiles.map((file) => (
+                            <span
+                              key={file.path}
+                              className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-3 py-1.5 text-[11px] font-medium text-primary"
+                              title={file.path}
+                            >
+                              <span className="material-symbols-outlined !text-[14px]">description</span>
+                              <span className="max-w-[150px] truncate">{file.path}</span>
+                            </span>
+                          ))}
+                          <button
+                            type="button"
+                            className="text-[11px] font-semibold text-gray-500 hover:text-gray-700 ml-1"
+                            onClick={() => setGlobalContextFilesSafe([])}
+                            disabled={isLoading}
+                            title="Clear all attached files"
+                          >
+                            Clear all
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
                   <textarea
                     ref={inputRef}
-                    className="w-full resize-none bg-transparent px-6 py-5 pr-16 text-[15px] leading-relaxed text-[#2D2424] dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#FDFBF7] dark:focus-visible:ring-offset-[#1C1917] rounded-3xl"
-                    placeholder={shouldShowClarificationScreen ? 'Answer the clarification to continue…' : 'Ask for a project plan or a code patch…'}
+                    className="w-full resize-none bg-transparent px-6 py-4 pr-20 text-[15px] leading-relaxed text-[#2D2424] dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#FDFBF7] dark:focus-visible:ring-offset-[#1C1917] rounded-b-3xl"
+                    placeholder={shouldShowClarificationScreen ? 'Answer the clarification to continue…' : !isChatActive ? 'Describe your project or paste code to get started…' : 'Ask for a project plan or a code patch…'}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     rows={1}
@@ -650,13 +1086,23 @@ const App: React.FC = () => {
                       }
                     }}
                   />
+
                   <button
                     type="submit"
                     disabled={isLoading || !input.trim()}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 size-10 rounded-2xl bg-primary text-white shadow-md hover:shadow-lg active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     aria-label="Send"
+                    className={
+                      "absolute right-4 top-1/2 -translate-y-1/2 grid size-11 place-items-center rounded-full " +
+                      "bg-primary text-white shadow-md ring-1 ring-white/40 transition " +
+                      "hover:shadow-lg hover:brightness-[1.03] active:scale-[0.98] " +
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 " +
+                      "focus-visible:ring-offset-[#FDFBF7] dark:focus-visible:ring-offset-[#1C1917] " +
+                      "disabled:opacity-50 disabled:cursor-not-allowed"
+                    }
                   >
-                    <SendIcon />
+                    <span className="pointer-events-none flex items-center justify-center">
+                      <SendIcon />
+                    </span>
                   </button>
                 </div>
               </form>

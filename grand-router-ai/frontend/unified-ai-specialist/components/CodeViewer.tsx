@@ -1,6 +1,6 @@
 import React from 'react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { LightAsync as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { atomOneLight } from 'react-syntax-highlighter/dist/esm/styles/hljs';
 
 const CopyIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -22,10 +22,18 @@ const stripDiffMarkers = (diff: string, opts: { includeRemoved: boolean }): stri
     if (line.startsWith('---')) continue;
     if (line.startsWith('+++')) continue;
 
-    if (line.startsWith('+') || line.startsWith('-') || line.startsWith(' ')) {
-      // Removed lines: include only when toggle is enabled.
-      if (line.startsWith('-') && !includeRemoved) continue;
+    // Old lines ("-"):
+    // - when toggle is OFF: skip entirely
+    // - when toggle is ON: keep and mark with a leading "- " so it remains visible in the code view
+    if (line.startsWith('-')) {
+      if (!includeRemoved) continue;
+      out.push(`- ${line.slice(1)}`);
+      continue;
+    }
 
+    // New lines ("+") and context lines (" "):
+    // - always keep, remove the leading marker
+    if (line.startsWith('+') || line.startsWith(' ')) {
       out.push(line.slice(1));
       continue;
     }
@@ -37,28 +45,31 @@ const stripDiffMarkers = (diff: string, opts: { includeRemoved: boolean }): stri
   return out.join('\n').trimEnd();
 };
 
-export const CodeViewer: React.FC<{ title?: string; code: string; language: string }> = ({
+export const CodeViewer: React.FC<{ title?: string; code: string; language?: string }> = ({
   title,
   code,
   language,
 }) => {
+  const effectiveLanguage = language && language !== 'text' ? language : undefined;
+
   return (
-    <div className="rounded-2xl border border-[#FFD3B3] bg-[#FFF4EA] overflow-hidden max-w-full">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[#FFD3B3] bg-[#FFEFE3]">
-        <div className="text-xs font-bold uppercase tracking-widest text-[#6B4E3D]">{title || 'Code'}</div>
-        <button className="text-[#A07A67] hover:text-[#6B4E3D] transition-colors" onClick={() => navigator.clipboard.writeText(code)}>
+    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 overflow-hidden max-w-full">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-emerald-200 bg-emerald-100">
+        <div className="text-xs font-bold uppercase tracking-widest text-emerald-900">{title || 'Code'}</div>
+        <button className="text-emerald-700 hover:text-emerald-900 transition-colors" onClick={() => navigator.clipboard.writeText(code)}>
           <CopyIcon />
         </button>
       </div>
-      <div className="text-sm text-[#1F2937] overflow-auto max-h-[calc(100vh-320px)] max-w-full">
+      <div className="text-sm text-emerald-950 overflow-auto max-h-[calc(100vh-320px)] max-w-full">
         <SyntaxHighlighter
-          language={language}
-          style={prism}
+          // When language is omitted, highlight.js will auto-detect (best-effort).
+          language={effectiveLanguage as any}
+          style={atomOneLight as any}
           customStyle={{
             margin: 0,
             borderRadius: 0,
-            background: '#FFF4EA',
-            color: '#1F2937',
+            background: '#ECFDF5',
+            color: '#052E2B',
             overflow: 'visible',
           }}
           codeTagProps={{

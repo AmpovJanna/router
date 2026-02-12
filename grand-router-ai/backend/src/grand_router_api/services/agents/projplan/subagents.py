@@ -106,3 +106,25 @@ class FollowupAgent:
         )
         out = generate(system, user, temperature=0.2)
         return FollowupResult(answer_md=out.strip())
+
+
+@dataclass
+class EditResult:
+    plan_json: str
+
+
+class EditAgent:
+    def run(self, *, user_message: str, plan_json: str) -> EditResult:
+        system = _read_prompt("edit.md")
+        user = (
+            "STEP: projplan.edit\n\n"
+            "USER_MESSAGE:\n"
+            f"{user_message.strip()}\n\n"
+            "CURRENT_PROJECT_PLAN_JSON:\n"
+            f"{plan_json.strip()}\n"
+        )
+        out = generate(system, user, temperature=0.3)
+        cleaned = _strip_json_fences(out)
+        # Validate it's proper JSON
+        json.loads(cleaned)
+        return EditResult(plan_json=cleaned.strip())

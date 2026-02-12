@@ -24,7 +24,14 @@ from grand_router_contracts.artifacts import (
 )
 
 from ..base import BaseAgent
-from .subagents import FollowupAgent, RiskAgent, ScopeAgent, StrategyAgent, TaskAgent
+from .subagents import (
+    EditAgent,
+    FollowupAgent,
+    RiskAgent,
+    ScopeAgent,
+    StrategyAgent,
+    TaskAgent,
+)
 
 
 def _extract_open_questions(requirements_md: str) -> list[str]:
@@ -47,6 +54,41 @@ def _extract_open_questions(requirements_md: str) -> list[str]:
         if len(out) >= 5:
             break
     return out
+
+
+def _is_edit_request(message: str) -> bool:
+    """Detect if user wants to modify the existing plan."""
+    edit_keywords = [
+        "add",
+        "remove",
+        "delete",
+        "change",
+        "rename",
+        "move",
+        "reorder",
+        "rearrange",
+        "update",
+        "modify",
+        "edit",
+        "insert",
+        "replace",
+        "swap",
+        "put",
+        "shift",
+        "add a task",
+        "add a phase",
+        "new task",
+        "new phase",
+        "remove task",
+        "remove phase",
+        "delete task",
+        "delete phase",
+        "change the name",
+        "rename task",
+        "rename phase",
+    ]
+    msg_lower = message.lower()
+    return any(kw in msg_lower for kw in edit_keywords)
 
 
 class ProjPlanAgent(BaseAgent):
@@ -76,6 +118,35 @@ class ProjPlanAgent(BaseAgent):
                 plan_json = json.dumps(
                     existing_plan.model_dump(mode="json"), ensure_ascii=False
                 )
+
+                # Check if user wants to edit/modify the plan
+                if _is_edit_request(user_query):
+                    edit_result = EditAgent().run(
+                        user_message=user_query,
+                        plan_json=plan_json,
+                    )
+                    edited_plan = ProjectPlan.model_validate(
+                        json.loads(edit_result.plan_json)
+                    )
+                    risks = RiskAgent().run(edit_result.plan_json)
+                    risks_lines = [
+                        r.strip() for r in risks.risks_md.splitlines() if r.strip()
+                    ]
+
+                    artifacts: list[Artifact] = [
+                        ProjectPlanArtifact(plan=edited_plan),
+                        RisksArtifact(risks=risks_lines[:10]),
+                    ]
+
+                    return AgentInvokeResponse(
+                        agent_id=self.agent_id,
+                        status=AgentStatus.ok,
+                        artifacts=artifacts,
+                        notes=["Plan updated based on your request."],
+                        clarifying_questions=[],
+                    )
+
+                # Otherwise, just answer questions about the existing plan
                 follow = FollowupAgent().run(
                     user_message=user_query,
                     plan_json=plan_json,
@@ -86,7 +157,7 @@ class ProjPlanAgent(BaseAgent):
                     ),
                 )
 
-                artifacts: list[Artifact] = [ProjectPlanArtifact(plan=existing_plan)]
+                artifacts = [ProjectPlanArtifact(plan=existing_plan)]
                 if ctx.get("last_risks"):
                     artifacts.append(
                         RisksArtifact(
@@ -121,23 +192,61 @@ class ProjPlanAgent(BaseAgent):
             RisksArtifact(risks=risks_lines[:10]),
         ]
 
-        explanation_md = "\n".join(
-            [
-                "OVERVIEW",
-                "This plan is organized into phases with concrete tasks you can track in the board.",
+        # Keep notes human-readable and UI-friendly. Avoid dumping internal sub-agent markdown.
+        # The actual plan is rendered from artifacts in the Planner UI.
+        phases = getattr(plan_obj, "phases", []) or []
+        phase_titles = [str(getattr(p, "title", "")).strip() for p in phases]
+        phase_titles = [t for t in phase_titles if t]
+
+        total_tasks = 0
+        p1_tasks: list[str] = []
+        for idx, ph in enumerate(phases):
+            tasks = getattr(ph, "tasks", []) or []
+            total_tasks += len(tasks)
+            if idx == 0:
+                p1_tasks = [str(getattr(t, "title", "")).strip() for t in tasks][:5]
+                p1_tasks = [t for t in p1_tasks if t]
+
+        proj_name = str(getattr(plan_obj, "projectName", "")).strip() or "Project"
+
+        explanation_lines: list[str] = [
+            f"{proj_name} plan is ready.",
+            "",
+            "OVERVIEW",
+            f"- {len(phases)} phases, {total_tasks} tasks",
+            "- You can edit tasks and track progress in the workspace",
+        ]
+
+        if phase_titles:
+            explanation_lines += [
                 "",
-                "REQUIREMENTS / CONSTRAINTS (EXTRACTED)",
-                (reqs.requirements_md.strip() or "(none)"),
-                "",
-                "STRATEGY",
-                (strat.strategy_md.strip() or "(none)"),
-                "",
-                "HOW TO USE THIS PLAN",
-                "- Start with Phase 1 tasks to confirm scope and constraints.",
-                "- Then execute Phase 2/3 in order; keep tasks small and verifiable.",
-                "- Review Risks tab before committing dates/budget.",
+                "PHASES",
+                *[f"- {t}" for t in phase_titles[:6]],
             ]
-        )
+
+        if p1_tasks:
+            explanation_lines += [
+                "",
+                "START HERE (PHASE 1)",
+                *[f"- {t}" for t in p1_tasks],
+            ]
+
+        if risks_lines:
+            explanation_lines += [
+                "",
+                "TOP RISKS",
+                *[f"- {r}" for r in risks_lines[:3]],
+            ]
+
+        explanation_lines += [
+            "",
+            "NEXT STEPS",
+            "- Confirm scope + constraints (update anything missing)",
+            "- Pick a realistic timeline (or share deadline and team size)",
+            "- Start executing Phase 1 tasks",
+        ]
+
+        explanation_md = "\n".join(explanation_lines).strip()
 
         # If we have meaningful open questions, ask them so the user can refine the plan.
         if open_qs:

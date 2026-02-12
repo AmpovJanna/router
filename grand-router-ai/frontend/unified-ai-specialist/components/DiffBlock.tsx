@@ -38,17 +38,21 @@ const Toggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void; label
  * - keeps diff metadata intact (diff/@@/---/+++)
  * - can hide removed lines for “old code” toggle
  */
-export const DiffBlock: React.FC<{ diff: string; light?: boolean; defaultShowRemoved?: boolean }> = ({
+export const DiffBlock: React.FC<{ diff: string; light?: boolean; defaultShowRemoved?: boolean; showRemoved?: boolean }> = ({
   diff,
   light = false,
   defaultShowRemoved = true,
+  // When provided, DiffBlock becomes controlled.
+  showRemoved,
 }) => {
-  const [showRemoved, setShowRemoved] = useState<boolean>(defaultShowRemoved);
+  const [internalShowRemoved, setInternalShowRemoved] = useState<boolean>(defaultShowRemoved);
+
+  const effectiveShowRemoved = typeof showRemoved === 'boolean' ? showRemoved : internalShowRemoved;
 
   const lines = useMemo(() => (diff || '').replace(/\r\n/g, '\n').split('\n'), [diff]);
 
   const visibleLines = useMemo(() => {
-    if (showRemoved) return lines;
+    if (effectiveShowRemoved) return lines;
     return lines.filter((line) => {
       const isMeta =
         line.startsWith('diff --git') ||
@@ -71,7 +75,7 @@ export const DiffBlock: React.FC<{ diff: string; light?: boolean; defaultShowRem
       if (line.startsWith('-')) return false;
       return !isMeta;
     });
-  }, [lines, showRemoved]);
+  }, [lines, effectiveShowRemoved]);
 
   const shellBg = light ? 'bg-[#FFF4EA] border-[#FFD3B3]' : 'bg-[#FFEFE3] border-[#FFDFC2]';
   const headerBg = light ? 'bg-[#FFEFE3] border-[#FFD3B3]' : 'bg-[#FFE5D0] border-[#FFDFC2]';
@@ -88,7 +92,7 @@ export const DiffBlock: React.FC<{ diff: string; light?: boolean; defaultShowRem
           <CopyIcon />
         </button>
       </div>
-      <pre className="p-4 overflow-x-auto">
+      <pre className="p-4 overflow-auto max-h-[calc(100vh-320px)]">
         <code className="font-mono text-sm leading-relaxed block">
           {visibleLines.map((line, i) => {
             const isMeta =

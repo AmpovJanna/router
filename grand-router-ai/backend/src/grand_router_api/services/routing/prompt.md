@@ -42,6 +42,15 @@ Use these rules to distinguish between agents:
     * **Specific Tasks:** "Write a function to do X", "Add a button", "Center the div".
     * **Micro-Level:** Requests focused on syntax, specific libraries, or error messages.
 
+3.  **Full-Stack Builder (`fullstack`) Triggers:**
+    * **Plan + Code:** When user wants BOTH a project plan AND working code.
+    * **Keywords:** "build a complete app", "full stack", "end to end", "everything", "plan and implement", "create and code", "both".
+    * **Intent:** "I want you to plan this project AND write the code for it."
+    * **Examples:** 
+      - "Build me a complete task manager with React and Node"
+      - "Create a blog platform with plan and code"
+      - "I need both the architecture and implementation"
+
 ## Output rules
 - If `selected_agent_id` is provided: include it as the top route (confidence 0.9–1.0) unless it is invalid.
 - Usually return **exactly one** route.

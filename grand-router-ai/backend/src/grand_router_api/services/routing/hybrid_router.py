@@ -1,13 +1,19 @@
 from __future__ import annotations
 
-from grand_router_contracts.router import RouteItem, RouterRouteRequest, RouterRouteResponse
+from grand_router_contracts.router import (
+    RouteItem,
+    RouterRouteRequest,
+    RouterRouteResponse,
+)
 
 from ..agents.registry import list_agents
 from .guardrails import apply_guardrails, clarification_response
 from .llm_router import LLMRouterError, route_with_llm
 
 
-def route_hybrid(*, request: RouterRouteRequest, force_deterministic: bool = False) -> RouterRouteResponse:
+def route_hybrid(
+    *, request: RouterRouteRequest, force_deterministic: bool = False
+) -> RouterRouteResponse:
     """Hybrid router orchestrator.
 
     - Loads agent registry
@@ -27,7 +33,7 @@ def route_hybrid(*, request: RouterRouteRequest, force_deterministic: bool = Fal
         if request.selected_agent_id is None:
             return clarification_response(
                 questions=[
-                    "mode=forced requires forced_agent_id. Which agent should be forced (codegen or projplan)?"
+                    "mode=forced requires forced_agent_id. Which agent should be forced?"
                 ],
                 rationale="Forced mode requested but no agent was provided.",
             )

@@ -20,6 +20,7 @@ type Props = {
   // When chat exists, send directly to planner agent and refresh messages.
   onDirectSendMessage?: (text: string) => Promise<void>;
   isGenerating?: boolean;
+  onCancelGenerating?: () => void;
 };
 
 const toTime = (iso: string | undefined): string => {
@@ -71,6 +72,7 @@ export const PlannerView: React.FC<Props> = ({
   onInitialRoutedSendMessage,
   onDirectSendMessage,
   isGenerating = false,
+  onCancelGenerating,
 }) => {
   const [plan, setPlan] = useState<PlannerProjectPlan | null>(null);
   const [risks, setRisks] = useState<string[] | null>(null);
@@ -193,6 +195,33 @@ export const PlannerView: React.FC<Props> = ({
     [calculateProgress]
   );
 
+  const handleEditTask = useCallback(
+    (phaseId: string, taskId: string, title: string, description: string) => {
+      setPlan((prev) => {
+        if (!prev) return null;
+
+        const newPhases = prev.phases.map((phase) => {
+          if (phase.id !== phaseId) return phase;
+          return {
+            ...phase,
+            tasks: phase.tasks.map((task) => {
+              if (task.id !== taskId) return task;
+              return { ...task, title: title.trim(), description: description.trim() };
+            }),
+          };
+        });
+
+        return {
+          ...prev,
+          phases: newPhases,
+        };
+      });
+
+      setIsDirty(true);
+    },
+    []
+  );
+
   // If we do not have a plan artifact yet, we wait for the unified router flow
   // to return an assistant message with a `project_plan` artifact.
   // (No direct backend calls from this view.)
@@ -204,12 +233,14 @@ export const PlannerView: React.FC<Props> = ({
     <div className="flex h-full w-full overflow-hidden bg-beige-bg font-display text-text-main">
       <ChatSidebar
         messages={messages}
+        chatId={chatId}
         onSendMessage={handleSendMessage}
         isGenerating={isGenerating}
+        onCancel={onCancelGenerating}
         routedLabel="Project Planner"
         inputPlaceholder="Refine the plan..."
       />
-      <Workspace plan={plan} risks={risks} onToggleTask={handleToggleTask} onUpdateTaskStatus={handleUpdateTaskStatus} />
+      <Workspace plan={plan} risks={risks} onToggleTask={handleToggleTask} onUpdateTaskStatus={handleUpdateTaskStatus} onEditTask={handleEditTask} />
     </div>
   );
 };

@@ -1,0 +1,13 @@
+# Repo-root ignores (keep in sync with subprojects).
+.pytest_cache/
+.ruff_cache/
+
+# Common Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Common Node
+node_modules/
+dist/

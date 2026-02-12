@@ -13,3 +13,7 @@ Output format (Markdown):
 - TOOLS & RESOURCES
 - KEY COMPONENTS
 - TRADEOFFS
+
+Style:
+- Write for a human reader.
+- Do NOT include chain-of-thought or meta commentary.

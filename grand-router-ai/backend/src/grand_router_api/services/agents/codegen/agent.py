@@ -18,8 +18,17 @@ from typing import Any
 
 from .pipeline.utils import safe_truncate
 
-from grand_router_contracts.agent import AgentId, AgentInvokeRequest, AgentInvokeResponse, AgentStatus
-from grand_router_contracts.artifacts import Artifact, PatchArtifact, VerificationStepsArtifact
+from grand_router_contracts.agent import (
+    AgentId,
+    AgentInvokeRequest,
+    AgentInvokeResponse,
+    AgentStatus,
+)
+from grand_router_contracts.artifacts import (
+    Artifact,
+    PatchArtifact,
+    VerificationStepsArtifact,
+)
 
 from ..base import BaseAgent
 from .pipeline import (
@@ -34,6 +43,8 @@ from .pipeline import (
     scan_project,
     run_debug_fix,
 )
+
+from .steps.snippet import parse_snippet
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +80,9 @@ def _is_test_path(path: str) -> bool:
 def _extract_diff_paths(patch: str) -> list[str]:
     # Parse git diff headers like: diff --git a/path b/path
     paths: list[str] = []
-    for m in re.finditer(r"^diff\s+--git\s+a/(\S+)\s+b/(\S+)\s*$", patch or "", flags=re.MULTILINE):
+    for m in re.finditer(
+        r"^diff\s+--git\s+a/(\S+)\s+b/(\S+)\s*$", patch or "", flags=re.MULTILINE
+    ):
         a_path = m.group(1)
         b_path = m.group(2)
         for p in (a_path, b_path):
@@ -156,7 +169,9 @@ def _clean_verification_steps_final(
     context: dict[str, Any],
 ) -> list[str]:
     # Apply existing cleaning + additional language-specific preferences.
-    cleaned = clean_verification_steps(steps, profile=profile, task=task, context=context)
+    cleaned = clean_verification_steps(
+        steps, profile=profile, task=task, context=context
+    )
 
     lang = str(getattr(profile, "language", "") or "").casefold()
 
@@ -186,7 +201,9 @@ def _clean_verification_steps_final(
     return _dedupe_preserve_order(cleaned)[:6]
 
 
-def _report_mentions_only_touched_files(*, notes: list[str], touched_paths: list[str]) -> bool:
+def _report_mentions_only_touched_files(
+    *, notes: list[str], touched_paths: list[str]
+) -> bool:
     # Minimal heuristic: if the report mentions a path-like token that looks like a repo file,
     # it must be in touched_paths.
     allowed = {p.replace("\\", "/").casefold() for p in (touched_paths or [])}
@@ -237,7 +254,9 @@ def clean_verification_steps(
 
     task_lc = (task or "").casefold()
     files = (context or {}).get("files") or []
-    java_greenfield = bool(getattr(profile, "language", None) == "java") and (not files or "create class" in task_lc or "create classes" in task_lc)
+    java_greenfield = bool(getattr(profile, "language", None) == "java") and (
+        not files or "create class" in task_lc or "create classes" in task_lc
+    )
 
     # Generic steps to remove unless explicitly requested / indicated.
     generic_patterns = [
@@ -322,12 +341,16 @@ def clean_verification_steps(
         # Policy:
         # - If Maven is mentioned, prefer `mvn test`.
         # - Otherwise prefer plain `javac`/`java` (no jshell).
-        preferred = [
-            "mvn test",
-        ] if allow_maven else [
-            "javac User.java Employee.java Main.java",
-            "java Main",
-        ]
+        preferred = (
+            [
+                "mvn test",
+            ]
+            if allow_maven
+            else [
+                "javac User.java Employee.java Main.java",
+                "java Main",
+            ]
+        )
         # Prepend in order while respecting dedupe.
         existing = cleaned
         cleaned = []
@@ -339,9 +362,17 @@ def clean_verification_steps(
 
         # In greenfield mode, also remove any remaining build-tool steps unless explicitly allowed.
         if not allow_maven:
-            cleaned = [s for s in cleaned if "mvn" not in s.casefold() and "maven" not in s.casefold()]
+            cleaned = [
+                s
+                for s in cleaned
+                if "mvn" not in s.casefold() and "maven" not in s.casefold()
+            ]
         if not allow_gradle:
-            cleaned = [s for s in cleaned if "gradle" not in s.casefold() and "gradlew" not in s.casefold()]
+            cleaned = [
+                s
+                for s in cleaned
+                if "gradle" not in s.casefold() and "gradlew" not in s.casefold()
+            ]
 
     return cleaned[:6]
 
@@ -357,7 +388,11 @@ class CodegenAgent(BaseAgent):
 
         logger.info("codegen.step intake start")
         intake = run_intake(task=request.task, context=context)
-        logger.info("codegen.step intake end needs_clarification=%s goal=%s", intake.needs_clarification, intake.goal)
+        logger.info(
+            "codegen.step intake end needs_clarification=%s goal=%s",
+            intake.needs_clarification,
+            intake.goal,
+        )
         if intake.needs_clarification:
             return AgentInvokeResponse(
                 agent_id=self.agent_id,
@@ -380,34 +415,43 @@ class CodegenAgent(BaseAgent):
             want_scan = bool(context.get("project_scan"))
             looks_like_debug = (
                 bool(error_logs)
-                or any(k in (request.task or "").casefold() for k in ["debug", "traceback", "stack trace", "exception"])
+                or any(
+                    k in (request.task or "").casefold()
+                    for k in ["debug", "traceback", "stack trace", "exception"]
+                )
                 or intake.goal == "bugfix"
             )
             if want_scan and looks_like_debug:
                 root_dir = str(context.get("project_root") or ".")
                 scan = scan_project(
                     root_dir=root_dir,
-                    include_globs=list(context.get("project_scan_include") or [
-                        "**/*.py",
-                        "**/*.ts",
-                        "**/*.tsx",
-                        "**/*.js",
-                        "**/*.json",
-                        "**/*.toml",
-                        "**/*.yml",
-                        "**/*.yaml",
-                        "**/pyproject.toml",
-                        "**/package.json",
-                        "**/vite.config.*",
-                    ]),
-                    regexes=list(context.get("project_scan_regexes") or [
-                        r"Traceback\\b",
-                        r"TODO\\b",
-                        r"FIXME\\b",
-                        r"raise\\s+",
-                        r"logger\\.",
-                        r"console\\.",
-                    ]),
+                    include_globs=list(
+                        context.get("project_scan_include")
+                        or [
+                            "**/*.py",
+                            "**/*.ts",
+                            "**/*.tsx",
+                            "**/*.js",
+                            "**/*.json",
+                            "**/*.toml",
+                            "**/*.yml",
+                            "**/*.yaml",
+                            "**/pyproject.toml",
+                            "**/package.json",
+                            "**/vite.config.*",
+                        ]
+                    ),
+                    regexes=list(
+                        context.get("project_scan_regexes")
+                        or [
+                            r"Traceback\\b",
+                            r"TODO\\b",
+                            r"FIXME\\b",
+                            r"raise\\s+",
+                            r"logger\\.",
+                            r"console\\.",
+                        ]
+                    ),
                 )
                 context = {
                     **context,
@@ -467,7 +511,11 @@ class CodegenAgent(BaseAgent):
             oneline_like_python_module = (
                 (len(task_lines) <= 2)
                 and ("def " in inline_task)
-                and (("import " in inline_task) or ("from " in inline_task) or ("class " in inline_task))
+                and (
+                    ("import " in inline_task)
+                    or ("from " in inline_task)
+                    or ("class " in inline_task)
+                )
             )
 
             oneline_like_code = (len(task_lines) <= 2) and (
@@ -490,7 +538,10 @@ class CodegenAgent(BaseAgent):
                 }.get(lang, "inline_snippet.txt")
 
                 # Preserve original context, but add a single virtual file.
-                context = {**context, "files": [{"path": default_name, "content": inline_task}]}
+                context = {
+                    **context,
+                    "files": [{"path": default_name, "content": inline_task}],
+                }
                 files = context.get("files") or []
                 snippet_mode = False
 
@@ -504,7 +555,9 @@ class CodegenAgent(BaseAgent):
                 agent_id=self.agent_id,
                 status=AgentStatus.needs_clarification,
                 artifacts=[],
-                notes=["- Please provide relevant files in context.files for bugfix/refactor work."],
+                notes=[
+                    "- Please provide relevant files in context.files for bugfix/refactor work."
+                ],
                 clarifying_questions=[
                     "Which file(s) should be modified? Provide them as context.files (path + content).",
                     "If available, include the full error log / stack trace in context.error_logs.",
@@ -533,32 +586,83 @@ class CodegenAgent(BaseAgent):
                 plan=plan.plan,
                 assumptions=intake.assumptions,
             )
-            logger.info("codegen.step snippet end code_chars=%s", len(snippet.code or ""))
+            logger.info(
+                "codegen.step snippet end code_chars=%s", len(snippet.code or "")
+            )
 
             code = snippet.code or ""
 
+            parsed = parse_snippet(code)
+
             # Guardrails: snippet output must never contain diff markers.
-            if re.search(r"(^|\n)diff\s+--git\b", code) or re.search(r"(^|\n)\+\+\+\b", code) or re.search(r"(^|\n)@@\b", code):
+            if (
+                re.search(r"(^|\n)diff\s+--git\b", code)
+                or re.search(r"(^|\n)\+\+\+\b", code)
+                or re.search(r"(^|\n)@@\b", code)
+            ):
                 return AgentInvokeResponse(
                     agent_id=self.agent_id,
                     status=AgentStatus.needs_clarification,
                     artifacts=[],
-                    notes=["- Snippet output contained diff markers. Please re-run with plain file snippets only."],
+                    notes=[
+                        "- Snippet output contained diff markers. Please re-run with plain file snippets only."
+                    ],
                     clarifying_questions=[
                         "Confirm the requested files/paths so I can output only full `// File:` blocks (no diffs).",
                     ],
                 )
 
             # Guardrails: snippet output must include enough `// File:` blocks for the requested plan.
-            # This replaces older Java-specific completeness heuristics (e.g., requiring User/Employee/Main.java)
-            # with a language/task-aware requirement.
-            requested_files = [str(p).strip() for p in (plan.files_to_touch or []) if str(p).strip()]
+            # However, 0 file blocks is a valid "chat/explanation" state when no files are requested.
+            requested_files = [
+                str(p).strip() for p in (plan.files_to_touch or []) if str(p).strip()
+            ]
             requested_files = _dedupe_preserve_order(requested_files)
 
-            file_blocks = len(re.findall(r"^//\s*File:\s+.+$", code, flags=re.MULTILINE))
+            task_for_intent = (request.task or "").strip().lower()
+            looks_like_question = (
+                "?" in task_for_intent
+                or task_for_intent.startswith("what ")
+                or task_for_intent.startswith("why ")
+                or task_for_intent.startswith("how ")
+                or task_for_intent.startswith("can you ")
+                or "explain" in task_for_intent
+            )
+            looks_like_generation_request = any(
+                k in task_for_intent
+                for k in [
+                    "generate",
+                    "scaffold",
+                    "create ",
+                    "write ",
+                    "implement",
+                    "add ",
+                    "remove ",
+                    "refactor",
+                    "patch",
+                    "diff",
+                ]
+            )
 
-            # If planner suggests multiple files, require >=2. Otherwise require at least max(1, len(files_to_touch)).
-            min_blocks = max(1, len(requested_files))
+            if (
+                parsed.is_chat_only
+                and looks_like_question
+                and (not looks_like_generation_request)
+            ):
+                # Pass through chat/explanation output even if the planner suggested files.
+                # This prevents Q&A prompts from being blocked by snippet completeness guardrails.
+                return AgentInvokeResponse(
+                    agent_id=self.agent_id,
+                    status=AgentStatus.ok,
+                    artifacts=[],
+                    notes=[parsed.text or code],
+                    clarifying_questions=[],
+                )
+
+            file_blocks = len(parsed.files)
+
+            # If planner suggests multiple files, require >=2. Otherwise require >= len(files_to_touch).
+            min_blocks = len(requested_files)
             if len(requested_files) >= 2:
                 min_blocks = max(min_blocks, 2)
 
@@ -578,7 +682,16 @@ class CodegenAgent(BaseAgent):
             # Optional: if the task explicitly names Spring Boot classes/files, ensure those appear somewhere.
             # (We intentionally do NOT require Java example files like User/Employee/Main.java.)
             task_lc = (request.task or "").casefold()
-            looks_like_spring = any(k in task_lc for k in ["spring boot", "springboot", "@restcontroller", "@controller", "spring data"])
+            looks_like_spring = any(
+                k in task_lc
+                for k in [
+                    "spring boot",
+                    "springboot",
+                    "@restcontroller",
+                    "@controller",
+                    "spring data",
+                ]
+            )
             if looks_like_spring:
                 # Extract tokens that look like filenames or Java class names.
                 class_tokens = set(
@@ -588,7 +701,11 @@ class CodegenAgent(BaseAgent):
                     )
                 )
                 file_tokens = set(
-                    re.findall(r"\b[\w./-]+\.(?:java|kt)\b", request.task or "", flags=re.IGNORECASE)
+                    re.findall(
+                        r"\b[\w./-]+\.(?:java|kt)\b",
+                        request.task or "",
+                        flags=re.IGNORECASE,
+                    )
                 )
 
                 required_markers: list[str] = sorted(class_tokens) + sorted(file_tokens)
@@ -635,7 +752,9 @@ class CodegenAgent(BaseAgent):
                     profile=intake.profile,
                     plan=plan.plan,
                 )
-                logger.info("codegen.step debug_fix end patch_chars=%s", len(dbg.patch or ""))
+                logger.info(
+                    "codegen.step debug_fix end patch_chars=%s", len(dbg.patch or "")
+                )
 
                 final_patch = dbg.patch
                 review = dbg.review
@@ -650,7 +769,10 @@ class CodegenAgent(BaseAgent):
                     assumptions=intake.assumptions,
                     files_to_touch=plan.files_to_touch,
                 )
-                logger.info("codegen.step implementer end patch_chars=%s", len(patch1.patch or ""))
+                logger.info(
+                    "codegen.step implementer end patch_chars=%s",
+                    len(patch1.patch or ""),
+                )
 
                 logger.info("codegen.step reviewer start")
                 review = run_review(
@@ -698,7 +820,9 @@ class CodegenAgent(BaseAgent):
                         "recommended_changes": solid.recommended_changes,
                     },
                 )
-                logger.info("codegen.step reviser end patch_chars=%s", len(revised.patch or ""))
+                logger.info(
+                    "codegen.step reviser end patch_chars=%s", len(revised.patch or "")
+                )
 
                 final_patch = revised.patch
 
@@ -707,7 +831,9 @@ class CodegenAgent(BaseAgent):
                     agent_id=self.agent_id,
                     status=AgentStatus.needs_clarification,
                     artifacts=[],
-                    notes=["- Unable to produce a valid unified diff patch from the provided inputs."],
+                    notes=[
+                        "- Unable to produce a valid unified diff patch from the provided inputs."
+                    ],
                     clarifying_questions=[
                         "Please provide the relevant file(s) in context.files (path + content).",
                         "If this is a bug, include the full error log / stack trace in context.error_logs.",
@@ -763,7 +889,11 @@ class CodegenAgent(BaseAgent):
         notes = report.notes or ["- Generated a patch."]
 
         # (B) Deterministic final_patch guardrail: block test deletion/rename/move unless user asked.
-        if (not snippet_mode) and _patch_deletes_or_moves_tests(final_patch) and (not _user_explicitly_requested_test_deletion(request.task)):
+        if (
+            (not snippet_mode)
+            and _patch_deletes_or_moves_tests(final_patch)
+            and (not _user_explicitly_requested_test_deletion(request.task))
+        ):
             return AgentInvokeResponse(
                 agent_id=self.agent_id,
                 status=AgentStatus.needs_clarification,
@@ -780,7 +910,9 @@ class CodegenAgent(BaseAgent):
         # (C) Report/patch consistency check: ensure notes mention only files touched in diff headers.
         if not snippet_mode:
             touched = _extract_diff_paths(final_patch)
-            if not _report_mentions_only_touched_files(notes=notes, touched_paths=touched):
+            if not _report_mentions_only_touched_files(
+                notes=notes, touched_paths=touched
+            ):
                 notes = [
                     "- Generated a patch.",
                     "- Note: Report omitted due to file/path inconsistency with the produced diff.",
@@ -800,5 +932,7 @@ class CodegenAgent(BaseAgent):
         )
 
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
-        logger.info("codegen.pipeline end status=%s elapsed_ms=%s", resp.status, elapsed_ms)
+        logger.info(
+            "codegen.pipeline end status=%s elapsed_ms=%s", resp.status, elapsed_ms
+        )
         return resp

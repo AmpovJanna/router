@@ -51,6 +51,8 @@ class Chat(BaseModel):
     title: str
     created_at: datetime
     updated_at: datetime
+    # Optional: persisted routing signal for UI (history icons, last mode).
+    routed_agent_id: AgentId | None = None
     pending_continuation: PendingContinuation | None = None
 
 

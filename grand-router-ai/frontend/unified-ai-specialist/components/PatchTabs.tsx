@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { DiffBlock } from './DiffBlock';
 import { CodeFromDiff, CodeViewer } from './CodeViewer';
 
 const stripUnifiedDiffNoise = (diff: string): string => {
@@ -158,6 +157,8 @@ const inferLanguageFromPath = (path: string): string => {
   const ext = (p.split('.').pop() || '').toLowerCase();
 
   switch (ext) {
+    case 'java':
+      return 'java';
     case 'ts':
     case 'tsx':
       return 'tsx';
@@ -254,7 +255,6 @@ export const PatchTabs: React.FC<{ patch: string }> = ({ patch }) => {
   }, [patch]);
 
   const [activePath, setActivePath] = useState<string>(() => (items[0]?.path ? items[0].path : ''));
-  const [showOldLines, setShowOldLines] = useState<boolean>(false);
 
   useEffect(() => {
     if (!items.length) {
@@ -285,36 +285,13 @@ export const PatchTabs: React.FC<{ patch: string }> = ({ patch }) => {
           ))}
         </div>
 
-        {active.kind === 'patch' ? (
-          <div className="flex items-center gap-3 pr-2 pb-2">
-            <label className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-500 select-none">
-              <span>Old</span>
-              <button
-                type="button"
-                aria-pressed={showOldLines}
-                onClick={() => setShowOldLines((v) => !v)}
-                className={
-                  `relative inline-flex h-5 w-9 items-center rounded-full border transition-colors ` +
-                  (showOldLines ? 'bg-cyan-500 border-cyan-500' : 'bg-gray-200 border-gray-300')
-                }
-              >
-                <span
-                  className={
-                    `inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ` +
-                    (showOldLines ? 'translate-x-4' : 'translate-x-0.5')
-                  }
-                />
-              </button>
-            </label>
-          </div>
-        ) : null}
+
       </div>
 
       <div className="p-2 space-y-3">
         {active.kind === 'patch' ? (
           <CodeFromDiff
             diff={active.diff}
-            includeRemoved={showOldLines}
             language={inferLanguageFromPath(active.path)}
           />
         ) : active.kind === 'snippet' ? (

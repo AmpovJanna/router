@@ -6,7 +6,14 @@ from typing import Any
 
 from ....llm.client import generate
 
-from .utils import ExecutionProfile, files_payload, parse_json, read_prompt, safe_truncate
+from .utils import (
+    ExecutionProfile,
+    files_payload,
+    parse_json,
+    read_prompt,
+    safe_json_dumps,
+    safe_truncate,
+)
 
 
 @dataclass(frozen=True)
@@ -31,12 +38,14 @@ def run_review(
         "profile": {"language": profile.language, "framework": profile.framework},
         "constraints": context.get("constraints") or [],
         "files": files_payload(context.get("files")),
-        "error_logs": safe_truncate(str(context.get("error_logs") or ""), max_chars=12_000),
+        "error_logs": safe_truncate(
+            str(context.get("error_logs") or ""), max_chars=12_000
+        ),
         "patch": safe_truncate(patch, max_chars=30_000),
         "goal": context.get("goal"),
     }
 
-    raw = generate(system, "STEP: review\n" + json.dumps(payload, ensure_ascii=False), temperature=0.0)
+    raw = generate(system, "STEP: review\n" + safe_json_dumps(payload), temperature=0.0)
     data = parse_json(raw)
 
     if not data:

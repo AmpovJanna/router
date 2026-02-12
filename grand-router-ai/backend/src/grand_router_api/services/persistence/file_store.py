@@ -29,9 +29,28 @@ from pathlib import Path
 from typing import Any
 
 from grand_router_contracts.artifacts import Artifact
-from grand_router_contracts.chat import Chat, Message, MessageRole, PendingContinuation, RoutingMeta
+from grand_router_contracts.chat import (
+    Chat,
+    Message,
+    MessageRole,
+    PendingContinuation,
+    RoutingMeta,
+)
 
 from .interface import ChatStore
+
+
+def _normalize_agent_id_str(x: object | None) -> str | None:
+    if x is None:
+        return None
+    v = getattr(x, "value", None)
+    if isinstance(v, str) and v:
+        return v
+
+    s = str(x)
+    if s.startswith("AgentId."):
+        s = s.split(".", 1)[1]
+    return s
 
 
 def _utc_now() -> datetime:
@@ -82,7 +101,42 @@ class FileChatStore(ChatStore):
 
     def list_chats(self) -> list[Chat]:
         doc = self._load()
-        chats = [Chat.model_validate(v) for v in doc.chats.values()]
+
+        # Backfill routed_agent_id for older stored chats by scanning recent assistant routing_meta.
+        backfilled = False
+        chats: list[Chat] = []
+        for chat_id, raw in doc.chats.items():
+            raw2 = dict(raw)
+
+            # Normalize any legacy enum-string values like "AgentId.planner".
+            if "routed_agent_id" in raw2:
+                old = raw2.get("routed_agent_id")
+                new = _normalize_agent_id_str(old)
+                if new != old:
+                    raw2["routed_agent_id"] = new
+                    doc.chats[chat_id] = raw2
+                    backfilled = True
+
+            c = Chat.model_validate(raw2)
+
+            if getattr(c, "routed_agent_id", None) is None:
+                msgs = doc.messages_by_chat.get(chat_id, [])
+                for m in reversed(msgs):
+                    if m.get("role") != "assistant":
+                        continue
+                    meta = m.get("routing_meta") or {}
+                    aid = _normalize_agent_id_str(meta.get("agent_id"))
+                    if aid:
+                        c = c.model_copy(update={"routed_agent_id": aid})
+                        doc.chats[chat_id] = c.model_dump(mode="json")
+                        backfilled = True
+                        break
+
+            chats.append(c)
+
+        if backfilled:
+            self._save(doc)
+
         chats.sort(key=lambda c: c.updated_at, reverse=True)
         return chats
 
@@ -91,7 +145,12 @@ class FileChatStore(ChatStore):
         raw = doc.chats.get(chat_id)
         if raw is None:
             raise KeyError(chat_id)
-        return Chat.model_validate(raw)
+        raw2 = dict(raw)
+        if "routed_agent_id" in raw2:
+            raw2["routed_agent_id"] = _normalize_agent_id_str(
+                raw2.get("routed_agent_id")
+            )
+        return Chat.model_validate(raw2)
 
     def delete_chat(self, chat_id: str) -> None:
         doc = self._load()
@@ -110,7 +169,24 @@ class FileChatStore(ChatStore):
             raise KeyError(chat_id)
 
         chat = Chat.model_validate(raw)
-        chat = chat.model_copy(update={"pending_continuation": pending, "updated_at": _utc_now()})
+        chat = chat.model_copy(
+            update={"pending_continuation": pending, "updated_at": _utc_now()}
+        )
+        doc.chats[chat_id] = chat.model_dump(mode="json")
+        self._save(doc)
+        return chat
+
+    def set_routed_agent_id(self, chat_id: str, agent_id: str | None) -> Chat:
+        doc = self._load()
+        raw = doc.chats.get(chat_id)
+        if raw is None:
+            raise KeyError(chat_id)
+
+        normalized = _normalize_agent_id_str(agent_id)
+        chat = Chat.model_validate(raw)
+        chat = chat.model_copy(
+            update={"routed_agent_id": normalized, "updated_at": _utc_now()}
+        )
         doc.chats[chat_id] = chat.model_dump(mode="json")
         self._save(doc)
         return chat
@@ -119,7 +195,9 @@ class FileChatStore(ChatStore):
         doc = self._load()
         if chat_id not in doc.chats:
             raise KeyError(chat_id)
-        return [Message.model_validate(m) for m in doc.messages_by_chat.get(chat_id, [])]
+        return [
+            Message.model_validate(m) for m in doc.messages_by_chat.get(chat_id, [])
+        ]
 
     def append_message(self, message: Message) -> Message:
         doc = self._load()

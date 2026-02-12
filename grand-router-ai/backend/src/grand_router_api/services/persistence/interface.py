@@ -16,7 +16,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 from grand_router_contracts.artifacts import Artifact
-from grand_router_contracts.chat import Chat, Message, MessageRole, PendingContinuation, RoutingMeta
+from grand_router_contracts.chat import (
+    Chat,
+    Message,
+    MessageRole,
+    PendingContinuation,
+    RoutingMeta,
+)
 
 
 class ChatStore(ABC):
@@ -75,6 +81,16 @@ class ChatStore(ABC):
         self, chat_id: str, pending: PendingContinuation | None
     ) -> Chat:
         """Set or clear a chat's pending continuation state.
+
+        Raises:
+            KeyError: if chat does not exist.
+        """
+
+    @abstractmethod
+    def set_routed_agent_id(self, chat_id: str, agent_id: str | None) -> Chat:
+        """Set or clear a chat's routed agent id.
+
+        This is used by the UI to render history icons and remember the last workspace mode.
 
         Raises:
             KeyError: if chat does not exist.

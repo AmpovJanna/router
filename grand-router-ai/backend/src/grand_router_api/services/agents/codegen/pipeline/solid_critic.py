@@ -6,7 +6,13 @@ from typing import Any
 
 from ....llm.client import generate
 
-from .utils import ExecutionProfile, parse_json, read_prompt, safe_truncate
+from .utils import (
+    ExecutionProfile,
+    parse_json,
+    read_prompt,
+    safe_json_dumps,
+    safe_truncate,
+)
 
 
 @dataclass(frozen=True)
@@ -36,7 +42,7 @@ def run_solid_critic(
         "goal": context.get("goal"),
     }
 
-    raw = generate(system, "STEP: solid\n" + json.dumps(payload, ensure_ascii=False), temperature=0.0)
+    raw = generate(system, "STEP: solid\n" + safe_json_dumps(payload), temperature=0.0)
     data = parse_json(raw)
 
     if not data:
@@ -52,7 +58,9 @@ def run_solid_critic(
 
     issues = _clean(data.get("issues"))
     if not patch.strip():
-        issues.append("Patch is empty or not a valid unified diff; SOLID critique may be incomplete.")
+        issues.append(
+            "Patch is empty or not a valid unified diff; SOLID critique may be incomplete."
+        )
 
     return SolidCriticResult(
         solid=_clean(data.get("solid")),

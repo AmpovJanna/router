@@ -259,6 +259,11 @@ def execute(req: RouterExecuteRequest) -> RouterExecuteResponse:
                 suggested_replies=list(route_response.clarifying_questions or []),
             )
 
+            # If we have a best-guess route, persist it for UI history icons.
+            if route_response.routes:
+                best = route_response.routes[0].agent_id
+                _store.set_routed_agent_id(chat_id, getattr(best, "value", str(best)))
+
             # Persist pending continuation so the next user message in this chat continues.
             # Even if routes=[] (pure clarification), we still have a chat_id now; the
             # next user message will re-route in the same chat (preserving history).
@@ -304,17 +309,41 @@ def execute(req: RouterExecuteRequest) -> RouterExecuteResponse:
         # `system` messages.
         last_plan = None
         last_risks = None
+        last_patch = None
+        last_snippet = None
+        last_notes = None
+
         for m in reversed(msgs):
             arts = getattr(m, "artifacts", None) or []
             if not arts:
                 continue
+
             for a in arts:
                 at = getattr(a, "type", None)
+
                 if at == "project_plan" and last_plan is None:
                     last_plan = getattr(a, "plan", None)
                 if at == "risks" and last_risks is None:
                     last_risks = getattr(a, "risks", None)
-            if last_plan is not None and last_risks is not None:
+
+                # Codegen-style artifacts.
+                if at == "patch" and last_patch is None:
+                    last_patch = getattr(a, "patch", None)
+
+                # NOTE: snippet is not currently part of shared backend contracts, but the UI reads it.
+                # Keep enrichment resilient for forward/backward compatibility.
+                if at == "snippet" and last_snippet is None:
+                    last_snippet = getattr(a, "snippet", None)
+
+                if at == "notes" and last_notes is None:
+                    last_notes = getattr(a, "notes", None)
+
+            if (
+                last_plan is not None
+                and last_risks is not None
+                and last_patch is not None
+                and (last_snippet is not None or last_notes is not None)
+            ):
                 break
 
         enriched = dict(base_context or {})
@@ -329,6 +358,14 @@ def execute(req: RouterExecuteRequest) -> RouterExecuteResponse:
                 "last_risks",
                 list(last_risks) if isinstance(last_risks, list) else last_risks,
             )
+
+        if last_patch is not None:
+            enriched.setdefault("last_patch", last_patch)
+        if last_snippet is not None:
+            enriched.setdefault("last_snippet", last_snippet)
+        if last_notes is not None:
+            enriched.setdefault("last_notes", last_notes)
+
         return enriched
 
     # Routed successfully: invoke chosen agent.
@@ -342,6 +379,14 @@ def execute(req: RouterExecuteRequest) -> RouterExecuteResponse:
             ctx = _augment_context_with_chat_memory(
                 chat_id=chat_id_for_mem, base_context=ctx
             )
+
+        logger.info(
+            "router.execute invoke agent=%s ctx_keys=%s last_patch_chars=%s last_snippet_chars=%s",
+            chosen,
+            sorted(list((ctx or {}).keys())),
+            len(str((ctx or {}).get("last_patch") or "")),
+            len(str((ctx or {}).get("last_snippet") or "")),
+        )
 
         try:
             agent_response = invoke_agent(
@@ -379,6 +424,11 @@ def execute(req: RouterExecuteRequest) -> RouterExecuteResponse:
             and route_response.routes
         ):
             primary = route_response.routes[0]
+
+            # Persist chosen agent for UI history icons.
+            _store.set_routed_agent_id(
+                chat_id, getattr(primary.agent_id, "value", str(primary.agent_id))
+            )
 
             clarifying_text = (
                 "\n".join(agent_response.clarifying_questions)
@@ -419,6 +469,11 @@ def execute(req: RouterExecuteRequest) -> RouterExecuteResponse:
         # Persist assistant message only when we actually have an agent_response.
         if (agent_response is not None) and route_response.routes:
             primary = route_response.routes[0]
+
+            # Persist chosen agent for UI history icons.
+            _store.set_routed_agent_id(
+                chat_id, getattr(primary.agent_id, "value", str(primary.agent_id))
+            )
             routing_meta = RoutingMeta(
                 agent_id=primary.agent_id,
                 confidence=primary.confidence,

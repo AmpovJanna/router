@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import re
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -153,18 +155,55 @@ def parse_json(text: str) -> dict[str, Any]:
         return {}
 
 
+def safe_json_dumps(obj: Any) -> str:
+    """JSON-encode with best-effort support for common non-JSON objects.
+
+    The codegen pipeline often serializes `context`, which may include datetimes or
+    Pydantic models (e.g. chat memory). We must never crash during dumps.
+    """
+
+    def _default(o: Any) -> Any:  # pragma: no cover (tiny helper)
+        if isinstance(o, datetime):
+            return o.isoformat()
+
+        # Pydantic v2 models and similar.
+        md = getattr(o, "model_dump", None)
+        if callable(md):
+            try:
+                return md(mode="json")
+            except Exception:
+                try:
+                    return md()
+                except Exception:
+                    pass
+
+        if dataclasses.is_dataclass(o):
+            try:
+                return dataclasses.asdict(o)
+            except Exception:
+                pass
+
+        return str(o)
+
+    return json.dumps(obj, ensure_ascii=False, default=_default)
+
+
 def bullet_lines(text: str) -> list[str]:
     lines = [ln.strip() for ln in (text or "").splitlines()]
     bullets = [ln for ln in lines if ln.startswith("-")]
     if bullets:
-        normalized = [b if b.startswith("- ") else "- " + b[1:].lstrip() for b in bullets]
+        normalized = [
+            b if b.startswith("- ") else "- " + b[1:].lstrip() for b in bullets
+        ]
     else:
         normalized = ["- " + ln for ln in lines if ln]
 
     return normalized[:12]
 
 
-def files_payload(files: Iterable[dict[str, Any]] | None, *, max_chars_per_file: int = 12_000) -> list[dict[str, str]]:
+def files_payload(
+    files: Iterable[dict[str, Any]] | None, *, max_chars_per_file: int = 12_000
+) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     for f in files or []:
         try:
@@ -174,7 +213,12 @@ def files_payload(files: Iterable[dict[str, Any]] | None, *, max_chars_per_file:
         if not path:
             continue
         content = str(f.get("content") or "")
-        out.append({"path": path, "content": safe_truncate(content, max_chars=max_chars_per_file)})
+        out.append(
+            {
+                "path": path,
+                "content": safe_truncate(content, max_chars=max_chars_per_file),
+            }
+        )
     return out
 
 

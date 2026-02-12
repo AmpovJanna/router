@@ -5,7 +5,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from ....llm.client import generate
-from ..pipeline.utils import ensure_unified_diff, read_prompt, safe_truncate
+from ..pipeline.utils import (
+    ensure_unified_diff,
+    read_prompt,
+    safe_json_dumps,
+    safe_truncate,
+)
 
 
 @dataclass(frozen=True)
@@ -14,7 +19,9 @@ class PatchWriteResult:
     reasoning: str
 
 
-def run_patch_writer(*, task: str, context: dict[str, Any], plan: list[str], debug: dict[str, Any]) -> PatchWriteResult:
+def run_patch_writer(
+    *, task: str, context: dict[str, Any], plan: list[str], debug: dict[str, Any]
+) -> PatchWriteResult:
     """Write a unified diff patch focused on fixing the reported issue.
 
     Uses debugger output as additional guidance.
@@ -25,12 +32,14 @@ def run_patch_writer(*, task: str, context: dict[str, Any], plan: list[str], deb
         "task": task,
         "plan": plan,
         "debug": debug,
-        "error_logs": safe_truncate(str((context or {}).get("error_logs") or ""), max_chars=18_000),
+        "error_logs": safe_truncate(
+            str((context or {}).get("error_logs") or ""), max_chars=18_000
+        ),
         "files": (context or {}).get("files") or [],
         "project_scan": (context or {}).get("project_scan") or {},
     }
 
-    raw = generate(system, "STEP: patch\n" + json.dumps(payload, ensure_ascii=False), temperature=0.0)
+    raw = generate(system, "STEP: patch\n" + safe_json_dumps(payload), temperature=0.0)
 
     # Try to keep only a diff.
     patch = ensure_unified_diff(raw)

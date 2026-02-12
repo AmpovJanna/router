@@ -6,7 +6,7 @@ from typing import Any
 
 from ....llm.client import generate
 
-from .utils import ExecutionProfile, read_prompt
+from .utils import ExecutionProfile, read_prompt, safe_json_dumps
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,9 @@ def run_snippet(
         "goal": context.get("goal"),
     }
 
-    raw = generate(system, "STEP: snippet\n" + json.dumps(payload, ensure_ascii=False), temperature=0.0)
+    raw = generate(
+        system, "STEP: snippet\n" + safe_json_dumps(payload), temperature=0.0
+    )
 
     # IMPORTANT: snippet mode returns raw code snippets, not a unified diff.
     return SnippetResult(code=(raw or "").strip() + "\n")

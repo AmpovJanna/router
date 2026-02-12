@@ -6,7 +6,7 @@ from typing import Any
 
 from ....llm.client import generate
 
-from .utils import ExecutionProfile, read_prompt, safe_truncate
+from .utils import ExecutionProfile, read_prompt, safe_json_dumps, safe_truncate
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,7 @@ def run_report(
         "patch": safe_truncate(final_patch, max_chars=30_000),
     }
 
-    raw = generate(system, "STEP: report\n" + json.dumps(payload, ensure_ascii=False), temperature=0.0)
+    raw = generate(system, "STEP: report\n" + safe_json_dumps(payload), temperature=0.0)
 
     # Preserve reporter headings/paragraphs exactly as plain text.
     # Only remove empty lines.

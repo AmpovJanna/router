@@ -24,13 +24,22 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from grand_router_contracts.agent import AgentId, AgentInvokeRequest, AgentInvokeResponse
+from grand_router_contracts.agent import (
+    AgentId,
+    AgentInvokeRequest,
+    AgentInvokeResponse,
+)
 
 from .base import BaseAgent
 from .registry import get_agent, resolve_entrypoint
 from .registry_models import AgentRegistryEntry
 
 logger = logging.getLogger(__name__)
+
+
+def _value_str(x: object) -> str:
+    v = getattr(x, "value", x)
+    return "" if v is None else str(v)
 
 
 @dataclass
@@ -107,7 +116,9 @@ def invoke_agent(agent_id: AgentId, request: AgentInvokeRequest) -> AgentInvokeR
             f"Loaded object does not conform to BaseAgent: {module_path}:{symbol}",
         )
 
-    if agent_obj.agent_id != agent_id:
+    # Compare by string value to be resilient to Enum identity differences when contracts are
+    # loaded from different environments/paths.
+    if _value_str(agent_obj.agent_id) != _value_str(agent_id):
         raise AgentInvokeError(
             "agent_id_mismatch",
             f"Loaded agent_id {agent_obj.agent_id} does not match requested {agent_id}",
@@ -115,11 +126,21 @@ def invoke_agent(agent_id: AgentId, request: AgentInvokeRequest) -> AgentInvokeR
 
     try:
         resp = agent_obj.invoke(request)
-        logger.info("agent.invoke end agent_id=%s status=%s", agent_id, getattr(resp, "status", None))
+        logger.info(
+            "agent.invoke end agent_id=%s status=%s",
+            agent_id,
+            getattr(resp, "status", None),
+        )
         return resp
     except AgentInvokeError:
-        logger.info("agent.invoke end agent_id=%s status=error(AgentInvokeError)", agent_id)
+        logger.info(
+            "agent.invoke end agent_id=%s status=error(AgentInvokeError)", agent_id
+        )
         raise
     except Exception as e:
-        logger.exception("agent.invoke end agent_id=%s status=error(unhandled)", agent_id)
-        raise AgentInvokeError("invoke_error", f"Agent invocation failed for {agent_id}") from e
+        logger.exception(
+            "agent.invoke end agent_id=%s status=error(unhandled)", agent_id
+        )
+        raise AgentInvokeError(
+            "invoke_error", f"Agent invocation failed for {agent_id}"
+        ) from e

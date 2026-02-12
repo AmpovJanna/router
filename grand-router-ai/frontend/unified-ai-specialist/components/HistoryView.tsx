@@ -1,6 +1,7 @@
 
 import React from 'react';
 import type { Artifact, Message } from '../types';
+import { CodeViewer } from './CodeViewer';
 
 const ListIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -26,18 +27,8 @@ interface HistoryViewProps {
 }
 
 const CodeBlock: React.FC<{ code: string; language: string }> = ({ code, language }) => (
-  <div className="my-4 rounded-xl overflow-hidden bg-[#FFEFE3] border border-[#FFDFC2] shadow-sm">
-    <div className="flex items-center justify-between px-4 py-2 border-b border-[#FFDFC2] bg-[#FFE5D0]">
-      <span className="text-[10px] uppercase font-bold tracking-widest text-[#6B3F37]">{language || 'CODE'}</span>
-      <button className="text-[#6B3F37] hover:text-[#2D2424] transition-colors" onClick={() => navigator.clipboard.writeText(code)}>
-        <CopyIcon />
-      </button>
-    </div>
-    <pre className="p-4 overflow-x-auto">
-      <code className="text-[#2D2424] font-mono text-sm leading-relaxed block">
-        {code.trim()}
-      </code>
-    </pre>
+  <div className="my-4">
+    <CodeViewer title={(language || 'Code').toUpperCase()} code={(code || '').trim()} language={language || undefined} />
   </div>
 );
 
@@ -591,14 +582,14 @@ const HistoryView: React.FC<HistoryViewProps> = ({ messages }) => {
             {msg.role === 'user' && (
               <div className="flex gap-4 max-w-[85%]">
                 <div className="flex flex-col items-end">
-                  <div className="bg-[#FFE2CC] text-[#4A403A] rounded-2xl rounded-tr-none p-5 shadow-sm text-base font-medium leading-tight whitespace-pre-wrap border border-[#FFD3B3]">
+                  <div className="bg-white/80 dark:bg-white/5 text-[#2D2424] dark:text-gray-100 rounded-2xl rounded-tr-none p-4 shadow-[0_14px_35px_-28px_rgba(0,0,0,0.45)] text-[15px] font-medium leading-relaxed whitespace-pre-wrap border border-black/5 dark:border-white/10 backdrop-blur">
                     {msg.content}
                   </div>
                   <div className="flex items-center gap-2 mt-2 px-1">
-                    <span className="text-[10px] text-gray-400 uppercase font-bold tracking-widest">
+                    <span className="text-[10px] text-gray-400 uppercase font-medium tracking-widest">
                       You • {formatTimestamp(msg.created_at)}
                     </span>
-                    <img src="https://picsum.photos/seed/profile/100/100" className="size-8 rounded-full border border-gray-100 object-cover" alt="User" />
+                    <img src="https://picsum.photos/seed/profile/100/100" className="size-7 rounded-full border border-black/5 dark:border-white/10 object-cover" alt="User" />
                   </div>
                 </div>
               </div>
@@ -608,19 +599,21 @@ const HistoryView: React.FC<HistoryViewProps> = ({ messages }) => {
             {msg.role === 'assistant' && (
               <div className="flex flex-col items-start w-full">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="size-10 rounded-full bg-slate-100 flex items-center justify-center border border-gray-100 overflow-hidden shadow-sm">
-                    <img src={`https://api.dicebear.com/7.x/bottts/svg?seed=${msg.routing_meta?.agent_id || 'assistant'}`} alt="Bot" className="size-8" />
+                  <div className="size-10 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center border border-black/5 dark:border-white/10 overflow-hidden shadow-sm">
+                    <img src={`https://api.dicebear.com/7.x/bottts/svg?seed=${msg.routing_meta?.agent_id || 'assistant'}`} alt="Bot" className="size-8 opacity-90" />
                   </div>
                   <div className="flex flex-col">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-[#4ADE80]">AI Assistant</span>
-                      <span className="text-[9px] font-black bg-[#F0FDF4] text-[#166534] px-1.5 py-0.5 rounded tracking-widest uppercase">Bot</span>
+                      <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">Assistant</span>
+                      <span className="text-[9px] font-semibold bg-black/5 dark:bg-white/10 text-gray-500 dark:text-gray-300 px-1.5 py-0.5 rounded tracking-widest uppercase">
+                        AI
+                      </span>
                     </div>
 
                     {msg.routing_meta?.agent_id ? (
                       <div className="mt-1">
-                        <span className="inline-flex items-center gap-2 rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-cyan-800">
-                          <span className="size-1.5 rounded-full bg-cyan-500" />
+                        <span className="inline-flex items-center gap-2 rounded-full border border-black/5 dark:border-white/10 bg-white/60 dark:bg-white/5 px-3 py-1 text-[10px] font-medium tracking-wide text-gray-500 dark:text-gray-300">
+                          <span className="size-1.5 rounded-full bg-primary/70" />
                           Routed to: {msg.routing_meta.agent_id}
                         </span>
                       </div>
@@ -639,7 +632,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ messages }) => {
                       : { summary: [], projectStructure: [], keyPoints: [], whatChanged: [], why: [], design: [], tests: [], byFile: {} };
 
                     return (
-                      <div className="bg-white border border-gray-100 dark:border-white/5 rounded-2xl rounded-tl-none p-6 shadow-sm text-[#2D2424] dark:text-gray-100 text-base leading-relaxed max-w-[98%]">
+                      <div className="bg-white/70 dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-2xl rounded-tl-none p-6 shadow-[0_18px_45px_-35px_rgba(0,0,0,0.5)] text-[#2D2424] dark:text-gray-100 text-[15px] leading-relaxed max-w-[98%] backdrop-blur-md">
                         {isStructured ? (
                           <div>
                             <SectionCard title="SUMMARY" lines={report.summary} />

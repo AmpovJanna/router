@@ -6,7 +6,13 @@ from typing import Any
 
 from ....llm.client import generate
 
-from .utils import ExecutionProfile, detect_profile, parse_json, read_prompt
+from .utils import (
+    ExecutionProfile,
+    detect_profile,
+    parse_json,
+    read_prompt,
+    safe_json_dumps,
+)
 
 
 _ALLOWED_LANGUAGES = {"python", "java", "javascript", "typescript", "csharp"}
@@ -31,7 +37,9 @@ def _infer_goal(*, task: str, context: dict[str, Any]) -> str:
     t = (task or "").lower()
     if context.get("error_logs"):
         return "bugfix"
-    if any(k in t for k in ["fix", "bug", "error", "exception", "stack trace", "traceback"]):
+    if any(
+        k in t for k in ["fix", "bug", "error", "exception", "stack trace", "traceback"]
+    ):
         return "bugfix"
     if any(k in t for k in ["refactor", "cleanup", "clean up", "optimize"]):
         return "refactor"
@@ -58,7 +66,7 @@ def run_intake(*, task: str, context: dict[str, Any]) -> IntakeResult:
         "context": context,
     }
 
-    raw = generate(system, "STEP: intake\n" + json.dumps(user, ensure_ascii=False))
+    raw = generate(system, "STEP: intake\n" + safe_json_dumps(user))
     data = parse_json(raw)
 
     profile = detect_profile(context=context, task=task)

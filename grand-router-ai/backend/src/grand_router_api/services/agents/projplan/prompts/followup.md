@@ -12,7 +12,12 @@ Your job:
 
 Output format (Markdown):
 - Start with a short direct answer.
-- Then a section: "DETAILS" with bullets.
+- Then (optional) a section: "DETAILS" with bullets.
 - If you need user input, add a section: "QUESTIONS" with bullet questions.
+
+Style:
+- Be concise and practical.
+- Do NOT include hidden reasoning, chain-of-thought, or meta commentary about your process.
+- Avoid repeating the entire plan; reference phase/task ids only when helpful.
 
 Do NOT output JSON.

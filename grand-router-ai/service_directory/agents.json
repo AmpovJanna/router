@@ -38,5 +38,74 @@
     "entrypoint": "grand_router_api.services.agents.projplan.agent:ProjPlanAgent",
     "version": "1.0.0",
     "enabled": true
+  },
+  {
+    "agent_id": "chatwriter",
+    "name": "Chat Writer (Sidebar Rewrite)",
+    "description": "Rewrites an agent response into a detailed, readable sidebar-friendly answer.",
+    "keywords": [
+      "rewrite",
+      "rephrase",
+      "summarize",
+      "sidebar",
+      "explain"
+    ],
+    "entrypoint": "grand_router_api.services.agents.chatwriter.agent:ChatWriterAgent",
+    "version": "1.0.0",
+    "enabled": true
+  },
+  {
+    "agent_id": "codechat",
+    "name": "Code Q&A (No Patch)",
+    "description": "Answers questions about the current code/patch/snippet without running the full codegen pipeline.",
+    "keywords": [
+      "explain",
+      "question",
+      "why",
+      "how",
+      "what does",
+      "clarify"
+    ],
+    "entrypoint": "grand_router_api.services.agents.codechat.agent:CodeChatAgent",
+    "version": "1.0.0",
+    "enabled": true
+  },
+  {
+    "agent_id": "planchat",
+    "name": "Plan Q&A (No Replan)",
+    "description": "Answers questions about the current project plan without regenerating phases/tasks.",
+    "keywords": [
+      "plan",
+      "roadmap",
+      "timeline",
+      "milestone",
+      "explain",
+      "clarify"
+    ],
+    "entrypoint": "grand_router_api.services.agents.planchat.agent:PlanChatAgent",
+    "version": "1.0.0",
+    "enabled": true
+  },
+  {
+    "agent_id": "fullstack",
+    "name": "Full-Stack Builder",
+    "description": "Creates a complete project plan AND generates the initial code implementation. Runs planner first, then codegen.",
+    "keywords": [
+      "fullstack",
+      "full stack",
+      "both",
+      "plan and code",
+      "build",
+      "create",
+      "scaffold",
+      "implement",
+      "everything",
+      "complete",
+      "end to end",
+      "e2e"
+    ],
+    "entrypoint": "grand_router_api.services.agents.fullstack.agent:FullStackAgent",
+    "version": "1.0.0",
+    "enabled": true
   }
 ]

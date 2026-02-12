@@ -54,11 +54,15 @@ def _request_payload(request: RouterRouteRequest) -> dict[str, Any]:
         "chat_id": request.chat_id,
         "message_id": request.message_id,
         "context": request.context,
-        "selected_agent_id": (_value_str(request.selected_agent_id) if request.selected_agent_id else None),
+        "selected_agent_id": (
+            _value_str(request.selected_agent_id) if request.selected_agent_id else None
+        ),
     }
 
 
-def _stub_llm_output(request: RouterRouteRequest, agents: list[AgentRegistryEntry]) -> str:
+def _stub_llm_output(
+    request: RouterRouteRequest, agents: list[AgentRegistryEntry]
+) -> str:
     # Simulate an LLM response as raw JSON string (so we still exercise parsing/validation).
     q = request.query.lower()
 
@@ -67,12 +71,35 @@ def _stub_llm_output(request: RouterRouteRequest, agents: list[AgentRegistryEntr
         chosen = _value_str(request.selected_agent_id)
     else:
         agent_ids = {_value_str(a.agent_id): a for a in agents if a.enabled}
-        if ("plan" in q) or ("milestone" in q) or ("requirements" in q):
+
+        # Check for fullstack intent first
+        fullstack_keywords = [
+            "fullstack",
+            "full stack",
+            "both",
+            "plan and code",
+            "complete app",
+            "end to end",
+            "everything",
+            "plan and implement",
+            "create and code",
+        ]
+        if any(kw in q for kw in fullstack_keywords) and "fullstack" in agent_ids:
+            chosen = "fullstack"
+        elif ("plan" in q) or ("milestone" in q) or ("requirements" in q):
             # Canonical planner id is `planner`. `projplan` is a legacy alias and should not be
             # emitted by routing unless it's explicitly enabled in the registry.
-            chosen = "planner" if "planner" in agent_ids else next(iter(agent_ids.keys()), "")
+            chosen = (
+                "planner"
+                if "planner" in agent_ids
+                else next(iter(agent_ids.keys()), "")
+            )
         else:
-            chosen = "codegen" if "codegen" in agent_ids else next(iter(agent_ids.keys()), "")
+            chosen = (
+                "codegen"
+                if "codegen" in agent_ids
+                else next(iter(agent_ids.keys()), "")
+            )
 
     obj: dict[str, Any] = {
         # omit api_version; pydantic will default it
@@ -88,7 +115,9 @@ def _stub_llm_output(request: RouterRouteRequest, agents: list[AgentRegistryEntr
             ]
         ),
         "needs_clarification": False if chosen else True,
-        "clarifying_questions": ([] if chosen else ["Which agent should handle this request?"]),
+        "clarifying_questions": (
+            [] if chosen else ["Which agent should handle this request?"]
+        ),
         "routing_rationale": "Stub LLM router (simulated).",
     }
     return json.dumps(obj)
@@ -106,7 +135,9 @@ def _extract_json_object(text: str) -> str:
 
     s = (text or "").strip()
 
-    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", s, flags=re.DOTALL | re.IGNORECASE)
+    fence = re.search(
+        r"```(?:json)?\s*(\{.*?\})\s*```", s, flags=re.DOTALL | re.IGNORECASE
+    )
     if fence:
         return fence.group(1).strip()
 
@@ -118,7 +149,9 @@ def _extract_json_object(text: str) -> str:
     return s
 
 
-def _call_openai(*, prompt: str, request: RouterRouteRequest, agents: list[AgentRegistryEntry]) -> str:
+def _call_openai(
+    *, prompt: str, request: RouterRouteRequest, agents: list[AgentRegistryEntry]
+) -> str:
     api_key = _env("OPENAI_API_KEY")
     if not api_key:
         raise LLMRouterError("OPENAI_API_KEY is required when ROUTER_LLM_MODE=openai")
@@ -170,7 +203,9 @@ def _call_openai(*, prompt: str, request: RouterRouteRequest, agents: list[Agent
     return _extract_json_object(content)
 
 
-def route_with_llm(request: RouterRouteRequest, agents: list[AgentRegistryEntry]) -> RouterRouteResponse:
+def route_with_llm(
+    request: RouterRouteRequest, agents: list[AgentRegistryEntry]
+) -> RouterRouteResponse:
     """LLM-first routing.
 
     Behavior is controlled by env vars:
@@ -198,4 +233,6 @@ def route_with_llm(request: RouterRouteRequest, agents: list[AgentRegistryEntry]
     try:
         return RouterRouteResponse.model_validate(data)
     except Exception as e:
-        raise LLMRouterError(f"LLM output failed RouterRouteResponse validation: {e}") from e
+        raise LLMRouterError(
+            f"LLM output failed RouterRouteResponse validation: {e}"
+        ) from e

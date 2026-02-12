@@ -6,7 +6,13 @@ from typing import Any
 
 from ....llm.client import generate
 
-from .utils import ExecutionProfile, ensure_unified_diff, read_prompt, safe_truncate
+from .utils import (
+    ExecutionProfile,
+    ensure_unified_diff,
+    read_prompt,
+    safe_json_dumps,
+    safe_truncate,
+)
 
 
 @dataclass(frozen=True)
@@ -35,7 +41,7 @@ def run_revise(
         "goal": context.get("goal"),
     }
 
-    raw = generate(system, "STEP: revise\n" + json.dumps(payload, ensure_ascii=False), temperature=0.0)
+    raw = generate(system, "STEP: revise\n" + safe_json_dumps(payload), temperature=0.0)
     revised = ensure_unified_diff(raw)
     if not revised:
         revised = patch

@@ -25,6 +25,7 @@ from grand_router_contracts.chat import MessageRole, RoutingMeta, RoutingMetaMod
 
 from ...services.agents.runner import AgentInvokeError, invoke_agent
 from ...services.persistence.file_store import FileChatStore
+from ...services.routing.qna_intent import detect_lightweight_qna
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -155,10 +156,19 @@ def invoke_agent_endpoint(
                 chat_id=request.chat_id, base_context=ctx
             )
 
+        # Lightweight Q&A guard:
+        # If the UI forces codegen, but the user is asking a simple question (e.g. "what is JSON"),
+        # answer directly instead of triggering the full codegen pipeline.
+        effective_agent_id = agent_id
+        if agent_id == AgentId.codegen:
+            intent = detect_lightweight_qna(task=str(request.task or ""), context=ctx)
+            if intent.is_qna and intent.confidence >= 0.75:
+                effective_agent_id = AgentId.chatwriter
+
         agent_response = invoke_agent(
-            agent_id,
+            effective_agent_id,
             AgentInvokeRequest(
-                agent_id=request.agent_id,
+                agent_id=effective_agent_id,
                 task=request.task,
                 context=ctx,
                 output_format=request.output_format,
@@ -187,7 +197,9 @@ def invoke_agent_endpoint(
                 role=MessageRole.assistant,
                 content=assistant_content,
                 routing_meta=RoutingMeta(
-                    agent_id=agent_id, confidence=1.0, mode=RoutingMetaMode.forced
+                    agent_id=effective_agent_id,
+                    confidence=1.0,
+                    mode=RoutingMetaMode.forced,
                 ),
                 artifacts=agent_response.artifacts,
             )

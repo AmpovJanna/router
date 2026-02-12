@@ -6,7 +6,14 @@ from typing import Any
 
 from ....llm.client import generate
 
-from .utils import ExecutionProfile, ensure_unified_diff, files_payload, read_prompt, safe_truncate
+from .utils import (
+    ExecutionProfile,
+    ensure_unified_diff,
+    files_payload,
+    read_prompt,
+    safe_json_dumps,
+    safe_truncate,
+)
 
 
 @dataclass(frozen=True)
@@ -40,11 +47,13 @@ def run_patch(
         "plan": plan,
         "files_to_touch": effective_files_to_touch,
         "files": provided_files,
-        "error_logs": safe_truncate(str(context.get("error_logs") or ""), max_chars=12_000),
+        "error_logs": safe_truncate(
+            str(context.get("error_logs") or ""), max_chars=12_000
+        ),
         "goal": context.get("goal"),
         "project_scan": (context or {}).get("project_scan") or {},
     }
 
-    raw = generate(system, "STEP: patch\n" + json.dumps(payload, ensure_ascii=False), temperature=0.0)
+    raw = generate(system, "STEP: patch\n" + safe_json_dumps(payload), temperature=0.0)
     patch = ensure_unified_diff(raw)
     return PatchResult(patch=patch)

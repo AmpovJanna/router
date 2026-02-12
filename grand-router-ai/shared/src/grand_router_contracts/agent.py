@@ -23,6 +23,18 @@ class AgentId(str, Enum):
     # Backward-compat alias for older clients / registry entries
     projplan = "projplan"
 
+    # Internal UX agent: rewrites agent output for sidebar readability.
+    chatwriter = "chatwriter"
+
+    # Q&A assistant for code context (avoids running full codegen pipeline).
+    codechat = "codechat"
+
+    # Q&A assistant for an existing project plan (planner follow-ups without regenerating plan).
+    planchat = "planchat"
+
+    # Full-stack: combines planning + code generation in sequence.
+    fullstack = "fullstack"
+
 
 class AgentStatus(str, Enum):
     ok = "ok"

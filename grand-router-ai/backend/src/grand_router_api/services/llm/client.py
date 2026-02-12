@@ -38,7 +38,9 @@ def _extract_step_id(user_prompt: str) -> str:
     - Include a line like: "STEP: intake".
     """
 
-    m = re.search(r"^STEP\s*:\s*([a-zA-Z0-9_\-\.]+)\s*$", user_prompt, flags=re.MULTILINE)
+    m = re.search(
+        r"^STEP\s*:\s*([a-zA-Z0-9_\-\.]+)\s*$", user_prompt, flags=re.MULTILINE
+    )
     if not m:
         return "unknown"
     return m.group(1).strip().lower()
@@ -53,7 +55,11 @@ def _maybe_log_reasoning(*, step: str, content: str) -> None:
     or code may contain secrets.
     """
 
-    enabled = (_env("CODEGEN_SUBAGENT_REASONING_LOG", "0") or "0").strip() in {"1", "true", "yes"}
+    enabled = (_env("CODEGEN_SUBAGENT_REASONING_LOG", "0") or "0").strip() in {
+        "1",
+        "true",
+        "yes",
+    }
     if not enabled:
         return
 
@@ -62,7 +68,9 @@ def _maybe_log_reasoning(*, step: str, content: str) -> None:
         preview = (content or "").strip()
         if len(preview) > 4000:
             preview = preview[:3500] + "\n...<truncated>...\n" + preview[-400:]
-        logger.info("llm.step_output step=%s chars=%s\n%s", step, len(content or ""), preview)
+        logger.info(
+            "llm.step_output step=%s chars=%s\n%s", step, len(content or ""), preview
+        )
     except Exception:
         # Never fail the request due to logging.
         logger.exception("llm.step_output logging failed")
@@ -72,7 +80,9 @@ def _stub_json(obj: dict[str, Any]) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True)
 
 
-def _stub_generate(system_prompt: str, user_prompt: str, *, model: str | None, temperature: float) -> str:
+def _stub_generate(
+    system_prompt: str, user_prompt: str, *, model: str | None, temperature: float
+) -> str:
     step = _extract_step_id(user_prompt)
 
     # Deterministic JSON-ish outputs to reduce parser complexity.
@@ -177,6 +187,36 @@ def _stub_generate(system_prompt: str, user_prompt: str, *, model: str | None, t
             "- Capacity/throughput issues → Simplify offerings; add staffing during peaks.\n"
         )
 
+    if step == "chatwriter.rewrite":
+        # Minimal stub: return a readable version of the original message.
+        # We intentionally keep it deterministic and avoid any external dependencies.
+        try:
+            raw = user_prompt.split("\n", 1)[1]
+            payload = json.loads(raw)
+            orig = str(payload.get("original_message") or "").strip()
+        except Exception:
+            orig = ""
+
+        if not orig:
+            return "(stub) Missing original_message"
+
+        cleaned = orig.strip()
+        if len(cleaned) > 2000:
+            cleaned = cleaned[:1600].rstrip() + "\n\n...<truncated>...\n"
+
+        return cleaned
+
+    if step == "planchat.answer":
+        # Deterministic stub.
+        try:
+            raw = user_prompt.split("\n", 1)[1]
+            payload = json.loads(raw)
+            q = str(payload.get("user_message") or "").strip()
+        except Exception:
+            q = ""
+
+        return "(stub) PlanChat answer\n\n" + (f"Question: {q}\n" if q else "")
+
     if step == "plan":
         return _stub_json(
             {
@@ -241,7 +281,9 @@ def _stub_generate(system_prompt: str, user_prompt: str, *, model: str | None, t
     return "(stub)"
 
 
-def _openai_generate(system_prompt: str, user_prompt: str, *, model: str | None, temperature: float) -> str:
+def _openai_generate(
+    system_prompt: str, user_prompt: str, *, model: str | None, temperature: float
+) -> str:
     api_key = _env("OPENAI_API_KEY")
     if not api_key:
         raise LLMClientError("OPENAI_API_KEY is required when CODEGEN_LLM_MODE=openai")
@@ -249,12 +291,16 @@ def _openai_generate(system_prompt: str, user_prompt: str, *, model: str | None,
     # Support OpenAI-compatible proxies.
     base_url = _env("OPENAI_BASE_URL")
 
-    resolved_model = model or (_env("LLM_MODEL_CODEGEN", _DEFAULT_MODEL) or _DEFAULT_MODEL)
+    resolved_model = model or (
+        _env("LLM_MODEL_CODEGEN", _DEFAULT_MODEL) or _DEFAULT_MODEL
+    )
 
     try:
         from openai import OpenAI  # type: ignore
     except Exception as e:  # pragma: no cover
-        raise LLMClientError("openai package not available. Install it or use CODEGEN_LLM_MODE=stub.") from e
+        raise LLMClientError(
+            "openai package not available. Install it or use CODEGEN_LLM_MODE=stub."
+        ) from e
 
     client = OpenAI(api_key=api_key, base_url=base_url)
 
@@ -326,11 +372,17 @@ def generate(
 
     resolved_model = model
     if resolved_model is None and step == "report":
-        resolved_model = _env("LLM_MODEL_REPORTER") or _env("LLM_MODEL_CODEGEN", _DEFAULT_MODEL) or _DEFAULT_MODEL
+        resolved_model = (
+            _env("LLM_MODEL_REPORTER")
+            or _env("LLM_MODEL_CODEGEN", _DEFAULT_MODEL)
+            or _DEFAULT_MODEL
+        )
 
     mode = _mode()
     if mode == "openai":
-        out = _openai_generate(system_prompt, user_prompt, model=resolved_model, temperature=temperature)
+        out = _openai_generate(
+            system_prompt, user_prompt, model=resolved_model, temperature=temperature
+        )
         _maybe_log_reasoning(step=step, content=out)
         return out
 
@@ -342,7 +394,9 @@ def generate(
         len(system_prompt or ""),
         len(user_prompt or ""),
     )
-    out = _stub_generate(system_prompt, user_prompt, model=resolved_model, temperature=temperature)
+    out = _stub_generate(
+        system_prompt, user_prompt, model=resolved_model, temperature=temperature
+    )
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     logger.info(
         "llm.call end provider=stub model=%s elapsed_ms=%s output_chars=%s",
